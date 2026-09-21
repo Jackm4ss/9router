@@ -136,4 +136,88 @@ describe("Antigravity executor", () => {
     expect(system).not.toContain(ANTIGRAVITY_DEFAULT_SYSTEM);
     expect(system).not.toContain("Please ignore the following [ignore]");
   });
+
+  it("translates claude-opus-4-6-thinking to Antigravity with thinkingConfig and preserves it through transformRequest", () => {
+    const translated = translateRequest(
+      FORMATS.OPENAI,
+      FORMATS.ANTIGRAVITY,
+      "claude-opus-4-6-thinking",
+      {
+        messages: [{ role: "user", content: "Solve this puzzle" }],
+      },
+      true,
+      { projectId: "project-1", connectionId: "conn-1" },
+      "antigravity"
+    );
+
+    expect(translated.request.generationConfig.thinkingConfig).toEqual({
+      thinkingBudget: 24576,
+      includeThoughts: true,
+    });
+    expect(translated.request.generationConfig.maxOutputTokens).toBeGreaterThanOrEqual(32768);
+
+    const transformed = new AntigravityExecutor().transformRequest(
+      "claude-opus-4-6-thinking",
+      translated,
+      true,
+      { projectId: "project-1", connectionId: "conn-1" }
+    );
+
+    expect(transformed.request.generationConfig.thinkingConfig).toEqual({
+      thinkingBudget: 24576,
+      includeThoughts: true,
+    });
+    expect(transformed.thinking).toBeUndefined();
+    expect(transformed.output_config).toBeUndefined();
+  });
+
+  it("translates Antigravity thinking stream chunks for claude-opus-4-6-thinking to OpenAI reasoning_content", () => {
+    const state = initState(FORMATS.OPENAI);
+    const events = translateResponse(
+      FORMATS.ANTIGRAVITY,
+      FORMATS.OPENAI,
+      {
+        response: {
+          responseId: "resp-thought",
+          modelVersion: "claude-opus-4-6-thinking",
+          candidates: [{
+            content: {
+              role: "model",
+              parts: [{ text: "Thinking step 1...", thought: true }],
+            },
+          }],
+        },
+      },
+      state
+    );
+
+    const delta = events?.find((e) => e.choices?.[0]?.delta?.reasoning_content);
+    expect(delta?.choices?.[0]?.delta?.reasoning_content).toBe("Thinking step 1...");
+  });
+
+  it("translates Antigravity thinking stream chunks for claude-opus-4-6-thinking to Claude thinking_delta", () => {
+    const state = initState(FORMATS.CLAUDE);
+    const events = translateResponse(
+      FORMATS.ANTIGRAVITY,
+      FORMATS.CLAUDE,
+      {
+        response: {
+          responseId: "resp-thought-claude",
+          modelVersion: "claude-opus-4-6-thinking",
+          candidates: [{
+            content: {
+              role: "model",
+              parts: [{ text: "Thinking step 1...", thought: true }],
+            },
+          }],
+        },
+      },
+      state
+    );
+
+    const thinkingDelta = events?.find(
+      (e) => e.type === "content_block_delta" && e.delta?.type === "thinking_delta"
+    );
+    expect(thinkingDelta?.delta?.thinking).toBe("Thinking step 1...");
+  });
 });

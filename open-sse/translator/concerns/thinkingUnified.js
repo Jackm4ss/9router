@@ -108,13 +108,37 @@ export const captureThinking = extractThinking;
 
 const NATIVE_ONLY_FORMATS = new Set(["gemini-level", "gemini-budget", "claude-budget", "claude-adaptive", "kiro"]);
 
+const GEMINI_WIRE_FORMATS = new Set(["gemini", "gemini-cli", "vertex", "antigravity"]);
+const CLAUDE_WIRE_FORMATS = new Set(["claude"]);
+const OPENAI_WIRE_FORMATS = new Set(["openai", "openai-responses", "openai-response", "codex"]);
+
+const GEMINI_FORMATS = new Set(["gemini-level", "gemini-budget"]);
+
+function isThinkingFormatCompatible(thinkingFormat, targetFormat) {
+  if (GEMINI_WIRE_FORMATS.has(targetFormat)) {
+    return GEMINI_FORMATS.has(thinkingFormat);
+  }
+  if (CLAUDE_WIRE_FORMATS.has(targetFormat)) {
+    return !GEMINI_FORMATS.has(thinkingFormat) && thinkingFormat !== "kiro";
+  }
+  if (OPENAI_WIRE_FORMATS.has(targetFormat)) {
+    return !NATIVE_ONLY_FORMATS.has(thinkingFormat);
+  }
+  if (targetFormat === "kiro") {
+    return thinkingFormat === "kiro";
+  }
+  if (targetFormat === "commandcode") {
+    return thinkingFormat === "commandcode";
+  }
+  return true;
+}
+
 function resolveFormat(targetFormat, model, provider) {
   if (targetFormat === "commandcode") return "commandcode";
   const providerFmt = provider ? PROVIDERS[provider]?.thinkingFormat : null;
   if (providerFmt) return providerFmt;
   const caps = getCapabilitiesForModel(provider, model);
-  const isOpenAIWire = targetFormat === "openai" || targetFormat === "openai-responses";
-  if (caps.thinkingFormat && !(isOpenAIWire && NATIVE_ONLY_FORMATS.has(caps.thinkingFormat))) {
+  if (caps.thinkingFormat && isThinkingFormatCompatible(caps.thinkingFormat, targetFormat)) {
     return caps.thinkingFormat;
   }
   return FORMAT_TO_NATIVE[targetFormat] || "openai";
@@ -366,7 +390,8 @@ export function applyThinking(targetFormat, model, body, provider = null, intent
   if (!body || typeof body !== "object") return body;
 
   const { cleanModel, override } = parseSuffix(model);
-  const cfg = override || intent || extractThinking(body);
+  const isThinkingModel = /(?:^|[/-])thinking(?:$|[/-])|-thinking$/i.test(cleanModel);
+  const cfg = override || intent || extractThinking(body) || (isThinkingModel ? { mode: "level", level: "high" } : null);
   const caps = getCapabilitiesForModel(provider, cleanModel);
 
   // Model cannot reason → strip any stray thinking fields.

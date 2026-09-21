@@ -55,8 +55,9 @@ function openaiToGeminiBase(model, body, stream, signature = DEFAULT_THINKING_AG
   if (body.top_k !== undefined) {
     result.generationConfig.topK = body.top_k;
   }
-  if (body.max_tokens !== undefined) {
-    result.generationConfig.maxOutputTokens = body.max_tokens;
+  const maxTokens = body.max_tokens ?? body.max_completion_tokens;
+  if (maxTokens !== undefined) {
+    result.generationConfig.maxOutputTokens = maxTokens;
   }
 
   // Build tool_call_id -> name map

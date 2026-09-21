@@ -26,6 +26,9 @@ describe("Claude Opus 1M context capabilities", () => {
     "claude-opus-4-7",
     "claude-opus-4.7",
     "claude-opus-4-6",
+    "claude-opus-4.6",
+    "claude-opus-4-6-thinking",
+    "claude-opus-4.6-thinking",
   ]) {
     it(`resolves ${model} to a 1M context window`, () => {
       expect(getCapabilitiesForModel("cc", model)).toMatchObject(expected);

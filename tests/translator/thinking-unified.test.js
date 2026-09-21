@@ -273,6 +273,51 @@ describe("applyThinking per provider format", () => {
     }, "commandcode");
     expect(out.params.reasoning_effort).toBe("max");
   });
+  it("claude-opus-4-6-thinking over antigravity defaults to thinking enabled in generationConfig", () => {
+    const out = apply("antigravity", "claude-opus-4-6-thinking", {
+      request: { contents: [{ role: "user", parts: [{ text: "hi" }] }] },
+    }, "antigravity");
+    expect(out.request.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 24576, includeThoughts: true });
+    expect(out.request.generationConfig.maxOutputTokens).toBeGreaterThanOrEqual(32768);
+    expect(out.thinking).toBeUndefined();
+    expect(out.output_config).toBeUndefined();
+  });
+  it("claude-opus-4-6-thinking over antigravity respects explicit reasoning_effort low", () => {
+    const out = apply("antigravity", "claude-opus-4-6-thinking", {
+      request: { contents: [{ role: "user", parts: [{ text: "hi" }] }] },
+      reasoning_effort: "low",
+    }, "antigravity");
+    expect(out.request.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 1024, includeThoughts: true });
+  });
+  it("claude-opus-4-6-thinking over antigravity respects explicit reasoning_effort none", () => {
+    const out = apply("antigravity", "claude-opus-4-6-thinking", {
+      request: { contents: [{ role: "user", parts: [{ text: "hi" }] }] },
+      reasoning_effort: "none",
+    }, "antigravity");
+    expect(out.request.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 0, includeThoughts: false });
+  });
+  it("claude-opus-4-6-thinking over antigravity maps Claude adaptive thinking to dynamic thinkingConfig", () => {
+    const out = apply("antigravity", "claude-opus-4-6-thinking", {
+      request: { contents: [{ role: "user", parts: [{ text: "hi" }] }] },
+      thinking: { type: "adaptive" },
+    }, "antigravity");
+    expect(out.request.generationConfig.thinkingConfig).toEqual({ thinkingBudget: -1, includeThoughts: true });
+    expect(out.request.generationConfig.maxOutputTokens).toBeGreaterThanOrEqual(32768);
+    expect(out.thinking).toBeUndefined();
+  });
+  it("claude-sonnet-4-6 over antigravity maps reasoning_effort to generationConfig thinkingBudget", () => {
+    const out = apply("antigravity", "claude-sonnet-4-6", {
+      request: { contents: [{ role: "user", parts: [{ text: "hi" }] }] },
+      reasoning_effort: "high",
+    }, "antigravity");
+    expect(out.request.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 24576, includeThoughts: true });
+  });
+  it("claude-opus-4-6-thinking over native claude format keeps claude-adaptive", () => {
+    const out = apply("claude", "claude-opus-4-6-thinking", {}, "claude");
+    expect(out.thinking).toEqual({ type: "adaptive" });
+    expect(out.output_config).toEqual({ effort: "high" });
+    expect(out.generationConfig).toBeUndefined();
+  });
 });
 
 describe("extractReasoningText (response shapes)", () => {
