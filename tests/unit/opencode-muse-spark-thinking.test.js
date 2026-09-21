@@ -222,6 +222,18 @@ describe("OpenCode Free Muse Spark thinking", () => {
         description: "Run shell command",
         parameters: { type: "object", properties: {} },
       },
+      {
+        type: "function",
+        name: "bash",
+        description: "This tool is currently unavailable and must not be used.",
+        parameters: { type: "object", properties: {} },
+      },
+      {
+        type: "function",
+        name: "read",
+        description: "This tool is currently unavailable and must not be used.",
+        parameters: { type: "object", properties: {} },
+      },
     ]);
   });
 });

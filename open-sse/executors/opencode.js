@@ -499,9 +499,7 @@ export class OpenCodeExecutor extends BaseExecutor {
       body.store = false;
       normalizeResponsesTools(body);
       sanitizeResponsesItems(body);
-      if (!Array.isArray(body.tools) || body.tools.length === 0) {
-        cloakOpencodeTools(body, true);
-      }
+      cloakOpencodeTools(body, true);
     } else if (body && typeof body === "object") {
       cloakOpencodeTools(body, false);
     }
