@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  GHCR_IMAGE: ghcr.io/${{ github.repository }}
+  GHCR_IMAGE: ghcr.io/jackm4ss/9router
 
 jobs:
   build-and-push:
