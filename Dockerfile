@@ -43,6 +43,9 @@ COPY --from=builder /app/node_modules/next ./node_modules/next
 COPY --from=builder /app/node_modules/sql.js ./node_modules/sql.js
 # node-machine-id is createRequire-loaded at runtime; tracing omits it.
 COPY --from=builder /app/node_modules/node-machine-id ./node_modules/node-machine-id
+# undici provides ProxyAgent for SOCKS proxy (open-sse/utils/proxyFetch.js dynamic import).
+# open-sse is copied manually so tracing omits it; without this, pool proxy falls back to direct.
+COPY --from=builder /app/node_modules/undici ./node_modules/undici
 
 RUN mkdir -p /app/data && chown -R node:node /app && \
   mkdir -p /app/data-home && chown node:node /app/data-home && \
