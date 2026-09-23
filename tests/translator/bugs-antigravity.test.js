@@ -277,4 +277,21 @@ describe("Antigravity executor", () => {
     );
     expect(thinkingDelta?.delta?.thinking).toBe("Thinking step 1...");
   });
+
+  it("translates gemini-3.8-flash-high with max_tokens 65536 allowing native 65536 limit", () => {
+    const translated = translateRequest(
+      FORMATS.OPENAI,
+      FORMATS.ANTIGRAVITY,
+      "gemini-3.8-flash-high",
+      {
+        messages: [{ role: "user", content: "hi" }],
+        max_tokens: 65536,
+      },
+      true,
+      null,
+      "antigravity"
+    );
+    const finalReq = new AntigravityExecutor().transformRequest("gemini-3.8-flash-high", translated, true, { projectId: "p-1" });
+    expect(finalReq.request.generationConfig.maxOutputTokens).toBe(65536);
+  });
 });

@@ -109,6 +109,11 @@ export const MODEL_CAPABILITIES = {
   "claude-sonnet-5-thinking": { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", contextWindow: 1000000, maxOutput: 128000 },
   "claude-sonnet-5-agentic": { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", contextWindow: 1000000, maxOutput: 128000 },
   "claude-sonnet-5-thinking-agentic": { vision: true, reasoning: true, search: true, thinkingFormat: "claude-adaptive", contextWindow: 1000000, maxOutput: 128000 },
+  // Gemini 3.8 Flash (High, Medium, Low, base) — native 65536 max output
+  "gemini-3.8-flash-high":   { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-level", thinkingCanDisable: false, contextWindow: 1048576, maxOutput: 65536 },
+  "gemini-3.8-flash-medium": { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-level", thinkingCanDisable: false, contextWindow: 1048576, maxOutput: 65536 },
+  "gemini-3.8-flash-low":    { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-level", thinkingCanDisable: false, contextWindow: 1048576, maxOutput: 65536 },
+  "gemini-3.8-flash":        { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-level", thinkingCanDisable: false, contextWindow: 1048576, maxOutput: 65536 },
 
   // Gemini image-gen / OpenAI image / xai image variants
   "gpt-image-1":       { imageOutput: true, tools: false },
@@ -296,6 +301,10 @@ export const PROVIDER_CAPABILITIES = {
     "claude-opus-4.6":          { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
     "claude-sonnet-4-6":        { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
     "claude-sonnet-4.6":        { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
+    "gemini-3.8-flash-high":   { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-level", thinkingCanDisable: false, contextWindow: 1048576, maxOutput: 65536 },
+    "gemini-3.8-flash-medium": { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-level", thinkingCanDisable: false, contextWindow: 1048576, maxOutput: 65536 },
+    "gemini-3.8-flash-low":    { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-level", thinkingCanDisable: false, contextWindow: 1048576, maxOutput: 65536 },
+    "gemini-3.8-flash":        { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-level", thinkingCanDisable: false, contextWindow: 1048576, maxOutput: 65536 },
   },
   "ag": {
     "claude-opus-4-6-thinking": { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
@@ -304,6 +313,10 @@ export const PROVIDER_CAPABILITIES = {
     "claude-opus-4.6":          { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
     "claude-sonnet-4-6":        { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
     "claude-sonnet-4.6":        { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
+    "gemini-3.8-flash-high":   { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-level", thinkingCanDisable: false, contextWindow: 1048576, maxOutput: 65536 },
+    "gemini-3.8-flash-medium": { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-level", thinkingCanDisable: false, contextWindow: 1048576, maxOutput: 65536 },
+    "gemini-3.8-flash-low":    { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-level", thinkingCanDisable: false, contextWindow: 1048576, maxOutput: 65536 },
+    "gemini-3.8-flash":        { vision: true, audioInput: true, videoInput: true, reasoning: true, search: true, thinkingFormat: "gemini-level", thinkingCanDisable: false, contextWindow: 1048576, maxOutput: 65536 },
   },
 };
 

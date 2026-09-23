@@ -83,7 +83,7 @@ describe("antigravity computeRetryDelay hook (D3)", () => {
     expect(h).not.toHaveProperty("Accept");
   });
 
-  it("transforms chat requests with official IDE requestId shape and 64000 token cap for Gemini", () => {
+  it("transforms chat requests with official IDE requestId shape and 65536 token cap for Gemini", () => {
     const out = ag.transformRequest("gemini-3.8-flash-high", {
       request: {
         contents: [
@@ -96,7 +96,7 @@ describe("antigravity computeRetryDelay hook (D3)", () => {
     }, true, { projectId: "project-1", connectionId: "conn-1" });
 
     expect(out.requestId).toMatch(/^agent\/[0-9a-f-]{36}\/\d{13}\/[0-9a-f-]{36}\/\d+$/);
-    expect(out.request.generationConfig.maxOutputTokens).toBe(64000);
+    expect(out.request.generationConfig.maxOutputTokens).toBe(65536);
   });
 
   it("transforms Claude chat requests with 128000 token cap", () => {
