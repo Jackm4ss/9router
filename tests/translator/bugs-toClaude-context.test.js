@@ -4,6 +4,7 @@ import "./registerAll.js";
 import { translateRequest } from "../../open-sse/translator/index.js";
 import { FORMATS } from "../../open-sse/translator/formats.js";
 import { prepareClaudeRequest } from "../../open-sse/translator/formats/claude.js";
+import { adjustMaxTokens } from "../../open-sse/translator/formats/maxTokens.js";
 
 // anthropic-compatible provider so prepareClaudeRequest runs the openai→claude path
 const T = (body) =>
@@ -180,6 +181,26 @@ describe("OpenAI → Claude context mapping", () => {
         messages: [{ role: "user", content: "q" }],
       }, "anthropic");
       expect(out.max_tokens).toBe(100000);
+    });
+    it("adjustMaxTokens ensures max_tokens > budget_tokens when budget_tokens >= ceiling", () => {
+      const body = {
+        max_tokens: 64000,
+        thinking: { budget_tokens: 64000 },
+      };
+      const maxTokens = adjustMaxTokens(body, 64000);
+      expect(maxTokens).toBe(64000);
+      expect(body.thinking.budget_tokens).toBe(62976);
+      expect(maxTokens).toBeGreaterThan(body.thinking.budget_tokens);
+    });
+
+    it("adjustMaxTokens ensures max_tokens > budget_tokens when budget_tokens is 128000 and ceiling is 64000", () => {
+      const body = {
+        thinking: { budget_tokens: 128000 },
+      };
+      const maxTokens = adjustMaxTokens(body, 64000);
+      expect(maxTokens).toBe(64000);
+      expect(body.thinking.budget_tokens).toBe(62976);
+      expect(maxTokens).toBeGreaterThan(body.thinking.budget_tokens);
     });
   });
 

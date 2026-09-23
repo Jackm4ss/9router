@@ -289,6 +289,17 @@ describe("applyThinking per provider format", () => {
     }, "antigravity");
     expect(out.request.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 1024, includeThoughts: true });
   });
+  it("claude-opus-4-6-thinking over antigravity clamps reasoning_effort max to stay strictly below maxOutputTokens", () => {
+    const out = apply("antigravity", "claude-opus-4-6-thinking", {
+      request: { contents: [{ role: "user", parts: [{ text: "hi" }] }] },
+      reasoning_effort: "max",
+    }, "antigravity");
+    expect(out.request.generationConfig.maxOutputTokens).toBe(128000);
+    expect(out.request.generationConfig.thinkingConfig.thinkingBudget).toBe(126976);
+    expect(out.request.generationConfig.thinkingConfig.thinkingBudget).toBeLessThan(
+      out.request.generationConfig.maxOutputTokens
+    );
+  });
   it("claude-opus-4-6-thinking over antigravity respects explicit reasoning_effort none", () => {
     const out = apply("antigravity", "claude-opus-4-6-thinking", {
       request: { contents: [{ role: "user", parts: [{ text: "hi" }] }] },

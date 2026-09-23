@@ -19,15 +19,29 @@ export function adjustMaxTokens(body, ceiling = DEFAULT_MAX_TOKENS) {
     }
   }
 
-  // Ensure max_tokens > thinking.budget_tokens (Claude API requirement)
-  // Claude API requires strictly greater, so add buffer instead of using the
-  // ceiling which could equal budget_tokens when budget_tokens >= ceiling
-  if (body.thinking?.budget_tokens && maxTokens <= body.thinking.budget_tokens) {
-    maxTokens = body.thinking.budget_tokens + 1024;
+  // Ensure max_tokens > thinking.budget_tokens (Claude API requirement).
+  // Both max_tokens <= ceiling and max_tokens > budget_tokens must hold.
+  // If budget_tokens alone meets or exceeds the ceiling, cap maxTokens at
+  // ceiling and shrink budget_tokens so room remains for output tokens.
+  if (body.thinking?.budget_tokens) {
+    if (body.thinking.budget_tokens >= ceiling) {
+      maxTokens = ceiling;
+      body.thinking.budget_tokens = Math.max(1024, ceiling - 1024);
+    } else {
+      if (maxTokens <= body.thinking.budget_tokens) {
+        maxTokens = body.thinking.budget_tokens + 1024;
+      }
+      if (maxTokens > ceiling) {
+        maxTokens = ceiling;
+      }
+      if (body.thinking.budget_tokens >= maxTokens) {
+        body.thinking.budget_tokens = Math.max(1024, maxTokens - 1024);
+      }
+    }
+  } else {
+    // Never exceed the ceiling
+    if (maxTokens > ceiling) maxTokens = ceiling;
   }
-
-  // Never exceed the ceiling
-  if (maxTokens > ceiling) maxTokens = ceiling;
 
   return maxTokens;
 }

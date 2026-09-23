@@ -1,0 +1,115 @@
+services:
+  9router:
+    image: decolua/9router:latest
+    container_name: 9router
+    restart: unless-stopped
+    # Strictly bind to localhost loopback to prevent public exposure
+    # and avoid conflicts with host web servers (Nginx/Apache on 80/443)
+    ports:
+      - "127.0.0.1:20128:20128"
+    volumes:
+      - 9router-data:/app/data
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /app/data
+      PORT: "20128"
+      HOSTNAME: "0.0.0.0"
+      NODE_ENV: production
+      # Headroom is accessible via internal Docker network DNS; no host port needed
+      HEADROOM_URL: http://headroom:8787
+      # Keep V8 heap below the container cgroup memory limit (768MB heap in 1024MB container)
+      NODE_OPTIONS: "--max-old-space-size=768"
+    depends_on:
+      - headroom
+
+    # Resource constraints to isolate 9router and protect MySQL / PHP-FPM
+    mem_limit: 1024m
+    mem_reservation: 256m
+    # Prevent container from thrashing host swap
+    memswap_limit: 1024m
+    # Lower CPU weight (default 1024) so host services get CPU priority during contention
+    cpu_shares: 512
+    cpus: "1.0"
+    # Maximize OOM killer priority so host kernel kills 9router before MySQL/PHP-FPM
+    oom_score_adj: 500
+    # Prevent fork bomb / thread exhaustion
+    pids_limit: 100
+
+    # Modern Compose v2 resource specification
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1024M
+        reservations:
+          cpus: "0.2"
+          memory: 256M
+
+    # Security: Prevent privilege escalation; drop all capabilities except those
+    # needed by /entrypoint.sh (chown / su-exec down to unprivileged node user)
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+
+    # Health monitoring using native endpoint
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:20128/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+    # Log rotation to prevent filling up disk and crashing host services
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    networks:
+      - 9router-network
+
+  headroom:
+    image: ghcr.io/chopratejas/headroom:latest
+    container_name: headroom
+    restart: unless-stopped
+    # CRITICAL: Do NOT publish ports to host.
+    # 9router accesses headroom strictly via the internal Docker bridge network.
+    expose:
+      - "8787"
+    mem_limit: 512m
+    mem_reservation: 128m
+    memswap_limit: 512m
+    cpus: "0.5"
+    oom_score_adj: 500
+    pids_limit: 50
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - 9router-network
+
+volumes:
+  9router-data:
+    name: 9router-data
+
+networks:
+  9router-network:
+    driver: bridge

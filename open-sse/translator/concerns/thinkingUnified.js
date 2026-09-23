@@ -200,7 +200,8 @@ function geminiBudgetOutputFloor(budget) {
   if (budget <= 1024) return 8192;
   if (budget <= 8192) return 16384;
   if (budget <= 24576) return 32768;
-  return 65535;
+  if (budget <= 64000) return 65535;
+  return 128000;
 }
 
 function geminiLevelOutputFloor(level) {
@@ -281,7 +282,16 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display) {
     }
     case "claude-budget": {
       if (none && canDisable) { body.thinking = { type: "disabled" }; break; }
-      const budget = toBudget(eff, caps.thinkingRange);
+      let budget = toBudget(eff, caps.thinkingRange);
+      if (budget != null && budget > 0) {
+        const ceiling = Number(caps?.maxOutput) || 64000;
+        if (!body.max_tokens || body.max_tokens <= budget) {
+          body.max_tokens = Math.min(budget + 1024, ceiling);
+        }
+        if (budget >= body.max_tokens) {
+          budget = Math.max(1024, body.max_tokens - 1024);
+        }
+      }
       body.thinking = budget === -1 ? { type: "enabled", ...(display ? { display } : {}) } : { type: "enabled", budget_tokens: budget || 8192, ...(display ? { display } : {}) };
       break;
     }
@@ -293,9 +303,16 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display) {
     }
     case "gemini-budget": {
       if (none && canDisable) { setGeminiThinking(body, { thinkingBudget: 0, includeThoughts: false }); break; }
-      const budget = toBudget(eff, caps.thinkingRange);
-      setGeminiThinking(body, { thinkingBudget: budget ?? -1, includeThoughts: true });
+      let budget = toBudget(eff, caps.thinkingRange);
       ensureGeminiOutputFloor(body, geminiBudgetOutputFloor(budget ?? -1), caps);
+      if (budget != null && budget > 0) {
+        const gc = getGeminiGenerationConfig(body);
+        const maxOut = Number(gc.maxOutputTokens) || Number(caps?.maxOutput) || 64000;
+        if (budget >= maxOut) {
+          budget = Math.max(1024, maxOut - 1024);
+        }
+      }
+      setGeminiThinking(body, { thinkingBudget: budget ?? -1, includeThoughts: true });
       break;
     }
     case "zai": {

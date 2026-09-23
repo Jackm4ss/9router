@@ -170,6 +170,63 @@ describe("Antigravity executor", () => {
     expect(transformed.thinking).toBeUndefined();
     expect(transformed.output_config).toBeUndefined();
   });
+  it("translates claude-opus-4-6-thinking with reasoning_effort max ensuring maxOutputTokens > thinkingBudget", () => {
+    const translated = translateRequest(
+      FORMATS.OPENAI,
+      FORMATS.ANTIGRAVITY,
+      "claude-opus-4-6-thinking",
+      {
+        messages: [{ role: "user", content: "Solve this puzzle" }],
+        reasoning_effort: "max",
+      },
+      true,
+      { projectId: "project-1", connectionId: "conn-1" },
+      "antigravity"
+    );
+
+    expect(translated.request.generationConfig.maxOutputTokens).toBe(128000);
+    expect(translated.request.generationConfig.thinkingConfig.thinkingBudget).toBeLessThan(
+      translated.request.generationConfig.maxOutputTokens
+    );
+    expect(translated.request.generationConfig.thinkingConfig).toEqual({
+      thinkingBudget: 126976,
+      includeThoughts: true,
+    });
+
+    const transformed = new AntigravityExecutor().transformRequest(
+      "claude-opus-4-6-thinking",
+      translated,
+      true,
+      { projectId: "project-1", connectionId: "conn-1" }
+    );
+
+    expect(transformed.request.generationConfig.maxOutputTokens).toBe(128000);
+    expect(transformed.request.generationConfig.thinkingConfig.thinkingBudget).toBeLessThan(
+      transformed.request.generationConfig.maxOutputTokens
+    );
+    expect(transformed.request.generationConfig.thinkingConfig).toEqual({
+      thinkingBudget: 126976,
+      includeThoughts: true,
+    });
+  });
+
+  it("translates claude-opus-4.6 with reasoning_effort max ensuring maxOutputTokens > thinkingBudget", () => {
+    const translated = translateRequest(
+      FORMATS.OPENAI,
+      FORMATS.ANTIGRAVITY,
+      "claude-opus-4.6",
+      {
+        messages: [{ role: "user", content: "Solve this puzzle" }],
+        reasoning_effort: "max",
+      },
+      true,
+      { projectId: "project-1", connectionId: "conn-1" },
+      "antigravity"
+    );
+
+    expect(translated.request.generationConfig.maxOutputTokens).toBe(128000);
+    expect(translated.request.generationConfig.thinkingConfig.thinkingBudget).toBe(126976);
+  });
 
   it("translates Antigravity thinking stream chunks for claude-opus-4-6-thinking to OpenAI reasoning_content", () => {
     const state = initState(FORMATS.OPENAI);

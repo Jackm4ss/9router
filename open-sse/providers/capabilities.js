@@ -288,22 +288,22 @@ export const PROVIDER_CAPABILITIES = {
   },
   // Antigravity (Google Cloud Code) — serves Claude and Gemini behind the Google
   // Cloud Code generateContent API. Wire format uses gemini-budget thinkingConfig
-  // with a 64k maxOutput ceiling (MAX_ANTIGRAVITY_OUTPUT_TOKENS).
+  // with a 128k maxOutput ceiling for Claude (MAX_ANTIGRAVITY_CLAUDE_OUTPUT_TOKENS).
   "antigravity": {
-    "claude-opus-4-6-thinking": { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", contextWindow: 1000000, maxOutput: 64000 },
-    "claude-opus-4.6-thinking": { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", contextWindow: 1000000, maxOutput: 64000 },
-    "claude-opus-4-6":          { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", contextWindow: 1000000, maxOutput: 64000 },
-    "claude-opus-4.6":          { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", contextWindow: 1000000, maxOutput: 64000 },
-    "claude-sonnet-4-6":        { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", contextWindow: 1000000, maxOutput: 64000 },
-    "claude-sonnet-4.6":        { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", contextWindow: 1000000, maxOutput: 64000 },
+    "claude-opus-4-6-thinking": { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
+    "claude-opus-4.6-thinking": { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
+    "claude-opus-4-6":          { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
+    "claude-opus-4.6":          { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
+    "claude-sonnet-4-6":        { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
+    "claude-sonnet-4.6":        { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
   },
   "ag": {
-    "claude-opus-4-6-thinking": { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", contextWindow: 1000000, maxOutput: 64000 },
-    "claude-opus-4.6-thinking": { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", contextWindow: 1000000, maxOutput: 64000 },
-    "claude-opus-4-6":          { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", contextWindow: 1000000, maxOutput: 64000 },
-    "claude-opus-4.6":          { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", contextWindow: 1000000, maxOutput: 64000 },
-    "claude-sonnet-4-6":        { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", contextWindow: 1000000, maxOutput: 64000 },
-    "claude-sonnet-4.6":        { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", contextWindow: 1000000, maxOutput: 64000 },
+    "claude-opus-4-6-thinking": { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
+    "claude-opus-4.6-thinking": { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
+    "claude-opus-4-6":          { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
+    "claude-opus-4.6":          { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
+    "claude-sonnet-4-6":        { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
+    "claude-sonnet-4.6":        { vision: true, reasoning: true, search: true, thinkingFormat: "gemini-budget", thinkingRange: { min: 1024, max: 126976 }, contextWindow: 1000000, maxOutput: 128000 },
   },
 };
 
