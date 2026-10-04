@@ -2,13 +2,13 @@
 
 ## Project Overview
 
-9Router is an OpenAI/Anthropic/Codex compatible multi-provider AI gateway, intelligent router, and dashboard built with Next.js 16 (App Router + standalone HTTP wrapper) and an independent provider-agnostic core (`open-sse`).
+9Router is an OpenAI/Anthropic/Codex compatible multi-provider AI gateway, intelligent router, and dashboard built with Next.js 16 (App Router + standalone HTTP wrapper) and an independent provider-agnostic core (`open-sse`). It unifies dozens of upstream AI providers (Anthropic Claude, OpenAI, Google Gemini/Antigravity, Codex, AWS Kiro, xAI Grok, DeepSeek, Ollama, Qwen, MiniMax, ElevenLabs, and more) behind standardized, production-ready APIs with intelligent fallback, credential rotation, rate limit circuit breakers, token-saving compression pipelines, and local developer IDE interception.
 
 The codebase is organized as a dual-artifact architecture:
-- **`9router-app` (Root `package.json`)**: Next.js application providing the web dashboard (`/dashboard`), management REST APIs (`/api/*`), and compatibility gateway endpoints (`/v1/*`, `/v1beta/*`, `/responses`, `/codex/*`).
-- **`9router` (`cli/package.json`)**: Standalone published npm CLI package that manages local daemon lifecycles, background runtime dependency bootstrapping, and platform system tray integration.
+- **`9router-app` (Root `package.json`)**: Next.js 16 web application providing the management web dashboard (`/dashboard`), management REST APIs (`/api/*`), and compatibility gateway endpoints (`/v1/*`, `/v1beta/*`, `/responses`, `/codex/*`). Packaged as a standalone server (`output: "standalone"`) and containerized in Docker (`decolua/9router:latest`).
+- **`9router` (`cli/package.json`)**: Published npm CLI package (`bin: { "9router": "./cli.js" }`) that embeds the stripped standalone server build inside `cli/app/`, manages local background daemon lifecycles, dynamically bootstraps native SQLite and systray runtimes in `~/.9router/runtime/node_modules`, and integrates with platform system trays.
 
-Target clients include developer CLI tools (Claude Code, Cursor, Codex CLI, Continue, OpenClaw, Roo, Cline), IDE extensions, custom agents, and browser clients.
+Target clients include developer CLI tools (Claude Code, Cursor, Codex CLI, Continue, OpenClaw, Roo, Cline), IDE extensions (VS Code, JetBrains), custom AI agents, and browser clients.
 
 ---
 
@@ -28,7 +28,7 @@ flowchart TD
     end
 
     subgraph open-sse Core Engine
-        ComboService --> ChatCore[open-sse/handlers/chatCore.js\nCoordinator]
+        ComboService --> ChatCore[open-sse/handlers/chatCore.js\nModality Coordinator]
         ChatCore --> TokenSavers[Token Savers: RTK, Headroom, Caveman, Ponytail, PXPIPE\nFail-Open Pre-processing]
         TokenSavers --> TranslatorReq[open-sse/translator/index.js\ntranslateRequest: source -> openai -> target]
         TranslatorReq --> Executor[open-sse/executors/index.js\nBaseExecutor / DefaultExecutor / Specialized]
@@ -45,79 +45,86 @@ flowchart TD
 ### Request Lifecycle Phases
 
 1. **Ingress & Security Wrapper (`custom-server.js`)**:
-   - Derives client IP directly from `req.socket.remoteAddress` to prevent spoofing.
-   - Strips untrusted `x-forwarded-for` and `x-real-ip` headers unless peer connects from verified loopback (`127.0.0.1`, `::1`).
-   - Stamps valid requests with a random per-process secret header `x-9r-peer-token` (`NINEROUTER_PEER_TOKEN`).
-   - Intercepts Cleartext HTTP/2 (`h2c`) upgrade requests (e.g. JetBrains IDEs) and cleanly downgrades them to HTTP/1.1 replays.
-   - Initializes background OAuth token refresh timers on server `'listening'`.
+   - Intercepts incoming requests by monkey-patching `http.createServer`.
+   - Derives client IP directly from the TCP socket (`req.socket.remoteAddress`) to prevent IP spoofing.
+   - Evaluates forwarding headers (`x-forwarded-for`, `x-real-ip`) only if the TCP socket peer is a verified loopback proxy (`127.0.0.1`, `::1`, `::ffff:127.0.0.1`).
+   - Strips client-supplied forwarding headers and stamps requests with an unspoofable per-process secret: `x-9r-peer-token` (`process.env.NINEROUTER_PEER_TOKEN`) and `x-9r-real-ip`. Sets `x-9r-via-proxy: "1"` if forwarded through a reverse proxy.
+   - Intercepts Cleartext HTTP/2 (`h2c`) upgrade requests (commonly emitted by JetBrains IDEs / JBR 25) and transparently downgrades them to HTTP/1.1 replays via synthesized `IncomingMessage`.
+   - Boots background token refresh timers on the server `'listening'` event.
+
 2. **Path Security Guard (`src/proxy.js` -> `src/dashboardGuard.js`)**:
-   - `PUBLIC_PREFIXES` (`/v1/*`, `/v1beta/*`, `/responses`, `/codex/*`): Allowed via local loopback, machine-ID-derived CLI token (`x-9r-cli-token`), or verified API key (`validateApiKey`).
-   - `LOCAL_ONLY_PATHS` (`/api/cli-tools/*`, `/api/mcp/*`, `/api/tunnel/*`, `/api/headroom/*`): Restricted to verified local loopback or CLI token.
-   - `ALWAYS_PROTECTED` (`/api/shutdown`, `/api/settings/database`): Requires valid JWT or local CLI token.
-   - Protected Dashboard: Enforces JWT cookie authentication or honors `settings.requireLogin === false`.
+   - Validates `x-9r-peer-token` against `process.env.NINEROUTER_PEER_TOKEN` via `hasTrustedPeerHeaders(request)`.
+   - Computes `isLocalRequest`: returns `false` if `x-9r-via-proxy` is present, or if peer IP or origin header are not loopback hostnames.
+   - Route classification and authorization:
+     - `PUBLIC_PREFIXES` (`/v1/*`, `/v1beta/*`, `/responses`, `/codex/*`): Allowed without credentials if `isLocalRequest` is true. Remote or proxied requests require a valid database API key (`extractApiKey`) or machine-ID-derived CLI token (`x-9r-cli-token`).
+     - `LOCAL_ONLY_PATHS` (`/api/settings/database`, `/api/pxpipe/install`, `/api/shutdown`, `/api/cli-tools/*`, `/api/mcp/*`, `/api/tunnel/*`, `/api/headroom/*`): Restricted to verified local loopback or valid CLI token. Remote calls receive `403 Forbidden`.
+     - `ALWAYS_PROTECTED` (`/api/keys`, `/api/auth/reset-password`): Requires valid session JWT cookie (`auth_token`) or CLI token.
+     - Protected Dashboard (`/dashboard/*`): Enforces valid JWT cookie authentication or honors `settings.requireLogin === false`. Checks `settings.tunnelDashboardAccess` to optionally restrict remote tunnel access to the dashboard.
+
 3. **URL Rewrites (`next.config.mjs`)**:
-   - `/v1/:path*` maps to `/api/v1/:path*`.
-   - `/codex/:path*` and `/responses` map to `/api/v1/responses`.
+   - Transparently maps legacy and client-specific URL paths to App Router handlers:
+     - `/v1/:path*` and `/v1/v1/:path*` $\to$ `/api/v1/:path*`
+     - `/codex/:path*` and `/responses` $\to$ `/api/v1/responses`
+     - `/v1beta/:path*` $\to$ `/api/v1beta/:path*`
+
 4. **Chat Orchestration (`src/sse/handlers/chat.js`)**:
-   - Strips client context markers (e.g. Claude Code `[1m]`).
-   - Resolves model aliases and multi-model combo definitions (`src/sse/services/model.js`):
-     - `fallback`: Sequentially attempts models upon failure.
-     - `round-robin` / `sticky-round-robin`: Distributes traffic across models.
+   - Normalizes input body and strips client context markers (e.g. Claude Code `<model>[1m]` $\to$ `<model>`).
+   - Filters warmup and title-generation bypass requests (`handleBypassRequest`) so they do not exhaust model combo slots.
+   - Detects required capabilities (multimodal images, tool calls, thinking intent).
+   - Resolves model aliases and multi-model combo strategies (`open-sse/services/combo.js`):
+     - `fallback`: Sequentially attempts configured models upon failure.
+     - `round-robin` / `sticky-round-robin`: Distributes traffic across models, honoring sticky limits.
      - `fusion`: Parallel panel queries with consensus judge model synthesis.
-     - Capacity adaptation: Automatically appends vision-capable combo models if the payload contains images (`augmentModelsWithCapacityAdapter`).
-   - Selects active credentials and rotates away from rate-limited or locked-out accounts (`src/sse/services/auth.js`).
+     - Capacity adaptation (`augmentModelsWithCapacityAdapter`): Dynamically appends vision-capable fallback models if the input payload contains image attachments.
+   - Selects active provider credentials via `getProviderCredentials` in `src/sse/services/auth.js` with per-model circuit breaker checking.
+
 5. **Core Translation & Execution (`open-sse/handlers/chatCore.js`)**:
    - Detects source format (`openai`, `claude`, `gemini`, `openai-responses`).
-   - Strips unsupported modalities (audio, PDF, image) based on target capabilities.
-   - Pre-fetches remote image URLs to base64 if upstream lacks HTTP fetching.
+   - Selects matching transport endpoint if supported natively by upstream (`zero-translation`).
+   - Identifies native passthrough (`isNativePassthrough`): when client tool and provider share the same ecosystem (e.g. Claude Code to Claude, Codex CLI to Codex), format conversion is bypassed for lossless execution.
+   - Strips unsupported media types (vision, audio, PDF) based on model capabilities (`stripUnsupportedModalities`).
+   - Prefetches external image URLs to base64 for upstream targets that cannot fetch remote URLs (`prefetchRemoteImages`).
    - Executes pre-dispatch token savers (RTK, Headroom, Caveman, Ponytail, PXPIPE) with strict fail-open semantics.
-   - Translates request format (`open-sse/translator/index.js`).
-   - Routes to executor (`open-sse/executors/`) and dispatches via `proxyAwareFetch` (HTTP/HTTPS/SOCKS5 proxies, Vercel relays).
+   - Translates request format via `open-sse/translator/index.js`.
+   - Obtains provider executor (`open-sse/executors/`) and dispatches via `proxyAwareFetch` (supporting direct, HTTP/HTTPS, SOCKS5, and Vercel relays).
+
 6. **Streaming & SSE Translation (`open-sse/handlers/chatCore/streamingHandler.js`)**:
+   - Catches non-SSE upstream responses (e.g. Cloudflare HTML 5xx challenge pages), extracts and sanitizes the `<title>`, and returns a clean JSON error response to prevent crashing Next.js streaming pipes.
    - Pipes response chunks through Web Streams `TransformStream` (`open-sse/utils/stream.js`), translating chunks back to client format (`translateResponse`).
-   - `pipeWithDisconnect` detects client aborts and upstream stalls (`STREAM_STALL_TIMEOUT_MS`, default 60s). Emits synthetic terminal frames (`[DONE]` or error) on abnormal termination.
-   - Records latency, TTFT, token usage, and cost to SQLite via `src/lib/usageDb.js`.
+   - `pipeWithDisconnect` monitors byte activity with a stall watchdog (`STREAM_STALL_TIMEOUT_MS`, default 30s).
+   - Injects synthetic terminal frames (`[DONE]`, `event: error`, or OpenAI Responses `response.failed`) on unexpected drops so client parsers do not hang.
+   - Persists latency, TTFT, token counts, and cost accounting to SQLite via `src/lib/usageDb.js`.
+
 7. **MITM Interception Subsystem (`src/mitm/`)**:
-   - Dedicated TLS server on port 443 with dynamic leaf cert generation via `node-forge` signed by 9Router Root CA.
-   - Dynamically modifies system `/etc/hosts` to redirect Copilot, Cursor, Kiro, and Google Cloud Code domains to `127.0.0.1`.
-   - Resolves real upstream IPs using external Google DNS (`8.8.8.8`) to prevent recursive redirection.
+   - Standalone HTTPS/HTTP2 server listening on port 443 with dynamic leaf certificate generation via `node-forge` signed by the 9Router Root CA.
+   - Modifies system `/etc/hosts` or local DNS to redirect IDE traffic for Copilot, Cursor, Kiro, and Google Cloud Code domains to `127.0.0.1`.
+   - Resolves true upstream destination IPs using external DNS (`8.8.8.8`) to avoid recursive interception loops.
 
 ---
 
 ## Key Directories
 
-```
-.
-├── src/                         # Main Next.js application & server-side logic
-│   ├── app/                     # App Router: API routes (api/v1/*, api/*) and Dashboard UI
-│   ├── sse/                     # High-level gateway orchestration (chat, auth, model, combo)
-│   ├── store/                   # Zustand client-side UI stores
-│   ├── lib/                     # Data persistence (SQLite repos), auth, logging, usageDb
-│   ├── mitm/                    # Local TLS proxy, Root CA management, DNS interception
-│   ├── shared/                  # Shared provider metadata, models, and constants
-│   ├── proxy.js                 # Edge middleware entry point
-│   ├── dashboardGuard.js        # Path classification and authentication rules
-│   └── instrumentation.js       # Server lifecycle hook (logging buffer, catalog sync)
-├── open-sse/                    # Provider-agnostic streaming & translation engine
-│   ├── handlers/                # Modality coordinators (chatCore, embeddingsCore, ttsCore...)
-│   ├── executors/               # Upstream transport adapters (base, default, antigravity, cursor...)
-│   ├── translator/              # Format translation hub (request, response, schema, concerns)
-│   ├── rtk/                     # Request Token Killer (in-place tool_result compression)
-│   ├── providers/               # Provider registries, capabilities matrix, default pricing
-│   ├── services/                # Combos, account fallback, token refresh dedup
-│   └── utils/                   # Stream helpers, stall handling, proxyFetch, error parsers
-├── cli/                         # Companion npm CLI package (`9router`)
-│   ├── src/                     # CLI runtime, process manager, platform systray
-│   └── scripts/                 # CLI bundling (esbuild) and packaging
-├── tests/                       # Independent ESM test suite (Vitest 4.0)
-│   ├── unit/                    # 250+ unit tests (executors, DB migrations, auth, streaming)
-│   ├── translator/              # Translation matrix, snapshots, it.fails bug tracking
-│   ├── auth/                    # SAML 2.0 and identity tests
-│   └── __baseline__/            # Regression verification scripts and known-fails.txt
-├── scripts/                     # Operational, migration, and asset packaging utilities
-├── skills/                      # Drop-in agent skill specifications (SKILL.md)
-└── docs/                        # Architecture documentation and specs
-```
+| Directory | Purpose |
+| :--- | :--- |
+| `src/app/` | Next.js App Router: API routes (`api/v1/*`, `api/*`, `oauth/*`) and Dashboard React UI. |
+| `src/sse/` | Gateway orchestration: chat orchestration, credential selection, auth, and model resolution. |
+| `src/store/` | Zustand client-side UI stores with TTL caching and optimistic updates. |
+| `src/lib/` | Server infrastructure: SQLite repository pattern (`src/lib/db/`), usage accounting, logging, auth. |
+| `src/mitm/` | Standalone port 443 TLS interception proxy, Root CA generation, and hosts file management. |
+| `src/shared/` | Shared provider metadata, model definitions, pricing constants, and capability tables. |
+| `open-sse/` | Provider-agnostic streaming and translation engine (zero Next.js coupling). |
+| `open-sse/handlers/` | Modality coordinators (`chatCore`, `embeddingsCore`, `ttsCore`, `sttCore`, `imagesCore`, `videoCore`, `webCore`). |
+| `open-sse/executors/` | Upstream transport adapters (`base`, `default`, `antigravity`, `codex`, `cursor`, `kiro`, etc.). |
+| `open-sse/translator/` | Hub-and-spoke format translation hub (`request/`, `response/`, `schema/`, `concerns/`). |
+| `open-sse/rtk/` | Token-saving preprocessors (RTK in-place compression, Headroom proxy, Caveman, Ponytail, PXPIPE). |
+| `open-sse/providers/` | Provider capability definitions, thinking levels, and default pricing schemas. |
+| `open-sse/services/` | Multi-model combos, capacity adapters, account fallback, and deduplicated token refresh. |
+| `open-sse/utils/` | Stream helpers, stall handling, client detection, proxyFetch, and error parsers. |
+| `cli/` | Companion npm CLI package (`9router`): process manager, binary wrapper, platform systray. |
+| `tests/` | Independent ESM test suite (Vitest 4.0): 250+ unit tests, translator matrix, regression baseline. |
+| `scripts/` | Build scripts (`copy-standalone-assets.mjs`), database migrations, and release utilities. |
+| `skills/` | Drop-in AI agent skill specifications (`SKILL.md`) for autonomous agent integration. |
+| `docs/` | Architecture specs, protocol mappings, and system documentation. |
 
 ---
 
@@ -126,26 +133,26 @@ flowchart TD
 ### Application Development & Build
 
 ```bash
-# Install dependencies
+# Install root dependencies
 npm install
 
-# Run dev server (default port 20127)
+# Start Next.js development server (default port 20127)
 npm run dev
 
-# Run dev server with Webpack explicitly
+# Start development server with explicit Webpack builder
 npm run dev:webpack
 
-# Run dev server under Bun runtime
+# Start development server using Bun runtime
 npm run dev:bun
 
 # Build standalone production distribution (Webpack + postbuild asset copying)
 npm run build
 
-# Build standalone distribution under Bun
+# Build standalone production distribution under Bun
 npm run build:bun
 
-# Start production server (wrapped in custom-server.js)
-npm run start
+# Start production server using custom-server wrapper (default port 20127)
+npm start
 
 # Start production standalone server under Bun
 npm run start:bun
@@ -153,20 +160,17 @@ npm run start:bun
 
 ### Testing Commands
 
-Tests reside in the independent ESM package `tests/` and require test dependencies installed:
+Tests reside in the independent ESM package `tests/`:
 
 ```bash
 # 1. Install root dependencies first (tests resolve @/ and open-sse modules)
 npm install
 
 # 2. Install test dependencies
-cd tests && npm install
+cd tests && npm install && cd ..
 
-# Run all tests from root
+# Run all tests from root via Vitest
 npx vitest run --config tests/vitest.config.js
-
-# Run all tests from tests/ directory
-cd tests && npx vitest run
 
 # Run a single test file
 npx vitest run --config tests/vitest.config.js tests/unit/embeddingsCore.test.js
@@ -180,10 +184,10 @@ RUN_REAL=1 npx vitest run --config tests/vitest.config.js tests/translator/real/
 # Run live smoke for specific providers
 RUN_REAL=1 REAL_PROVIDERS=kiro,codex npx vitest run --config tests/vitest.config.js tests/translator/real/
 
-# Verify regression status against baseline known-fails whitelist
+# Verify regression status against baseline known-fails list
 node tests/__baseline__/verify-no-regression.mjs
 
-# Verify byte-for-byte stability of configurations
+# Verify byte-for-byte configuration stability
 node tests/__baseline__/verify-providers.mjs
 node tests/__baseline__/verify-alias.mjs
 node tests/__baseline__/verify-oauth-urls.mjs
@@ -196,16 +200,20 @@ node tests/__baseline__/verify-oauth-urls.mjs
 npx eslint .
 ```
 
-### CLI Package Management
+### Companion CLI Commands
 
 ```bash
-# Build and package the companion CLI tarball from root
+# Build and package the companion CLI tarball (.tgz) from root
 npm run cli:pack
 
-# Inside cli/ directory:
-cd cli
-npm run dev      # nodemon file watcher
-npm run build    # bundle via esbuild
+# Build and publish the CLI package to npm registry
+npm run cli:publish
+
+# Run CLI file watcher during development
+cd cli && npm run dev
+
+# Build standalone CLI artifacts
+cd cli && npm run build
 ```
 
 ---
@@ -216,77 +224,85 @@ npm run build    # bundle via esbuild
 
 Configured in `jsconfig.json` and mirrored in `tests/vitest.config.js`:
 - `@/*` maps to `./src/*`
-- `open-sse` and `open-sse/*` map to `./open-sse/*`
+- `open-sse` maps to `./open-sse`
+- `open-sse/*` maps to `./open-sse/*`
+
+### Formatting & Naming Conventions
+- **Files & Directories**: camelCase for service modules (`chatCore.js`, `tokenRefresh.js`), kebab-case for API route directories (`chat/completions/`), utility files (`stream-handler.js`), and test files (`headroom-detect.test.js`). PascalCase for class names and executors (`BaseExecutor`, `AntigravityExecutor`).
+- **Logging Glyphs**: Console log lines use standardized symbols for high-visibility log streaming:
+  - `▶`: Request ingress (`POST model → provider/model · FMT · STREAM/JSON · ACC:name`)
+  - `⚙`: Pre-processing & token saver applied (`CAVEMAN:full`, `PXPIPE:2img`)
+  - `🔑`: OAuth credential refreshed
+  - `⇄`: Account failover triggered
+  - `📊`: Request completion metrics (`done · TTFT · total latency · token counts`)
+  - `✗`: Error / upstream rejection
 
 ### Translator Architecture & Registration
 
-Format conversions use a **hub-and-spoke pattern** pivoting through OpenAI Chat Completions schema:
-- Intermediate hop: `sourceFormat -> FORMATS.OPENAI -> targetFormat`
-- Response hop: `targetFormat -> FORMATS.OPENAI -> sourceFormat`
-- **Direct Routes (Lossless)**: Exact pairs (e.g. `claude:kiro`, `kiro:claude`) bypass the OpenAI pivot to preserve reasoning blocks, binary payloads, and tool metadata.
+Format conversions use a **hub-and-spoke pattern** pivoting through the OpenAI Chat Completions schema:
+- Request conversion: `sourceFormat -> FORMATS.OPENAI -> targetFormat`
+- Response chunk conversion: `targetFormat -> FORMATS.OPENAI -> sourceFormat`
+- **Direct Routes (Lossless)**: Exact pairs (e.g. `claude:kiro`, `kiro:claude`) bypass the OpenAI pivot to eliminate data loss during tool calling or reasoning output.
 
 **Rules for Translators**:
 1. Translators register via side-effects: `register(from, to, reqFn, resFn)`.
-2. New translator modules **must** be imported in `open-sse/translator/index.js` or they will not register at runtime.
-3. **Mandatory in Tests**: Vitest ESM does not evaluate dynamic bundler `require()`. Every translator test **MUST** import:
-   ```javascript
-   import "./registerAll.js";
-   ```
+2. New translator modules **must** be statically imported in `open-sse/translator/index.js` or they will not register.
+3. **Mandatory in Tests**: Every translator test **MUST** import `tests/translator/registerAll.js` at the top of the file to populate the registration table under Vitest ESM.
 
 ### Error Handling & Fail-Open Contracts
-
-- **Token Savers (RTK, Headroom, Caveman, Ponytail, PXPIPE)**: Strictly **fail-open**. Any error, timeout, or schema mismatch must catch gracefully, return the original unmodified payload, and allow execution to proceed. Never throw from token savers.
-- **Account Failover & Circuit Breaking**: Upstream 429 (rate limit) or 5xx errors invoke `markAccountUnavailable` with exponential cooldowns and automatically cycle to the next active connection in the pool.
-- **Streaming Disconnects**: `pipeWithDisconnect` buffers chunks, checks stall timeouts, and delays abort controller termination by 500ms on client disconnect to flush trailing logs and records cleanly. If headers were already sent, it enqueues a synthetic terminal error frame so the client parser does not crash.
+- **Token Savers (RTK, Headroom, Caveman, Ponytail, PXPIPE)**: Strictly **fail-open**. Any timeout, network error, or parsing failure must catch cleanly and return the uncompressed payload. Token savers must never abort or block user requests.
+- **Circuit Breakers & Exponential Cooldown**: Upstream rate limits (429) or transient errors (5xx) record per-model locks (`modelLock_${model}`) in SQLite via `markAccountUnavailable`. Requests automatically cycle to the next active connection. Successful requests clear locks via `clearAccountError`.
+- **Streaming Disconnects**: `pipeWithDisconnect` detects client aborts and upstream stalls (`STREAM_STALL_TIMEOUT_MS`). On abnormal termination after HTTP headers were already sent, it enqueues synthetic terminal frames (`[DONE]`, `event: error`, or `response.failed`) so downstream client parsers do not hang.
 
 ### Asynchronous & Streaming Patterns
-
 - **Web Streams**: All streaming uses standard `ReadableStream`, `TransformStream`, and `TextDecoder("utf-8", { fatal: false })` with `{ stream: true }`.
-- **Line Buffering**: SSE streams split on `\n` while keeping unterminated chunks in a residual buffer (`buffer = lines.pop() || ""`) to prevent splitting multi-byte UTF-8 characters across chunk boundaries.
-- **Token Refresh Deduplication**: `open-sse/services/tokenRefresh/dedup.js` ensures concurrent requests awaiting token renewal for the same connection attach to a single in-flight promise rather than launching duplicate OAuth refreshes.
+- **Line Buffering**: SSE streams split on `\n` while keeping residual uncompleted data in a buffer (`buffer = lines.pop() || ""`) to prevent splitting multi-byte UTF-8 sequences.
+- **Token Refresh Deduplication**: `open-sse/services/tokenRefresh/dedup.js` ensures concurrent requests awaiting token renewal for the same connection attach to a single in-flight promise with a 10-second result TTL.
+
+### Dependency Injection & Modular Wiring
+- **Executor Selection**: Executors are selected dynamically via `getExecutor(provider)` from `open-sse/executors/index.js`. Standard OpenAI and Anthropic compatible providers use `DefaultExecutor`; unique APIs use specialized executors inheriting from `BaseExecutor`.
+- **Modular Modality Coordinators**: Distinct modalities are segregated into dedicated coordinators in `open-sse/handlers/`:
+  - `chatCore.js` (Text chat, multi-turn reasoning, function calling)
+  - `embeddingsCore.js` (Vector embeddings)
+  - `ttsCore.js` (Text-to-speech)
+  - `sttCore.js` (Speech-to-text transcriptions)
+  - `imagesCore.js` (Image generation)
+  - `videoCore.js` (Video generation)
+  - `webCore.js` (Web search and URL content fetching)
 
 ### State Management & Persistence
-
 - **Client State (Zustand in `src/store/`)**:
-  - `providerStore.js` and `settingsStore.js` employ TTL caching (`CLIENT_STORE_TTL_MS`) to eliminate redundant fetches.
-  - `patchSettings` performs optimistic state updates following `PATCH /api/settings` without secondary GET round-trips.
+  - `providerStore.js` and `settingsStore.js` employ TTL caching (`CLIENT_STORE_TTL_MS = 60000`). Network requests are skipped if the cache is fresh unless `{ force: true }` is specified. Calling `invalidate()` resets `lastFetched: 0`.
+  - Settings mutations perform optimistic updates via `patchSettings` without secondary GET requests.
 - **Server Persistence (SQLite in `src/lib/db/`)**:
-  - Persistence uses the Repository Pattern (`src/lib/db/repos/`).
-  - Multi-runtime driver fallback chain (`src/lib/db/driver.js`):
-    `bun:sqlite` -> `better-sqlite3` -> `node:sqlite` -> `sql.js` (WASM).
-  - Main database file: `${DATA_DIR}/db/data.sqlite` (defaults to `~/.9router/db/data.sqlite`).
-  - `src/lib/localDb.js` is a legacy compatibility shim re-exporting `src/lib/db/index.js`.
-
-### Logging Glyph Convention
-
-Standardized console log markers:
-- `▶`: Request ingress (`POST model → provider/model · FMT · STREAM/JSON`)
-- `⚙`: Pre-processing / token saver applied (`RTK`, `CAVEMAN`, `PONYTAIL`)
-- `🔑`: Token refreshed successfully
-- `⇄`: Account failover triggered
-- `📊`: Request completion summary (`200 OK · TTFT · Latency · Tokens`)
-- `✗`: Error / upstream rejection
+  - Database operations use the Repository Pattern (`src/lib/db/repos/`).
+  - Adaptive multi-runtime driver fallback chain (`src/lib/db/driver.js`):
+    `bun:sqlite` $\to$ `better-sqlite3` $\to$ `node:sqlite` $\to$ `sql.js` (WASM).
+  - Main database file resides at `${DATA_DIR}/db/data.sqlite` (defaults to `~/.9router/db/data.sqlite`).
+  - Database adapter instance is attached to `global._dbAdapter` to survive Next.js dev server hot-module reloads.
 
 ---
 
 ## Important Files
 
 ### Process Entry Points & Gateways
+
 | File | Role |
 | :--- | :--- |
-| `custom-server.js` | Production Node HTTP server wrapper; validates TCP peer IP, downgrades h2c upgrades, initiates token refresh daemon. |
-| `src/proxy.js` | Edge middleware entry point forwarding traffic to `dashboardGuard.js`. |
+| `custom-server.js` | Production Node.js HTTP server wrapper; derives TCP socket IP, stamps peer tokens, downgrades h2c upgrades, boots token refresh. |
+| `src/proxy.js` | Next.js Edge proxy middleware entry point forwarding traffic to `dashboardGuard.js`. |
 | `src/dashboardGuard.js` | Security gate enforcing loopback checks, CLI tokens, API keys, and session JWTs. |
-| `src/instrumentation.js` | Next.js server lifecycle hook; boots console log capture and triggers model catalog sync. |
-| `src/mitm/server.js` | Dedicated TLS server (:443) intercepting IDE traffic via dynamic cert generation. |
-| `src/app/api/v1/chat/completions/route.js` | Gateway entry point for OpenAI chat completions. |
+| `src/instrumentation.js` | Next.js server lifecycle hook; boots console log capture and model catalog sync. |
+| `src/mitm/server.js` | Dedicated TLS server (port 443) intercepting IDE traffic via dynamic cert generation. |
+| `src/app/api/v1/chat/completions/route.js` | App Router gateway entry point for OpenAI chat completions. |
 
 ### Configuration Files
+
 | File | Role |
 | :--- | :--- |
-| `package.json` | Project scripts, dependencies, optional dependencies, CLI pack commands. |
-| `next.config.mjs` | Standalone output, 128MB proxy client body size, server external packages, API path rewrites. |
-| `jsconfig.json` | Path aliases (`@/*`, `open-sse/*`) and compiler configuration. |
+| `package.json` | Project identity (`9router-app`), dependencies, build scripts, optional native addons. |
+| `next.config.mjs` | Standalone output, 128MB proxy client body size, serverExternalPackages, path rewrites. |
+| `jsconfig.json` | Path aliases (`@/*`, `open-sse/*`) and bundler module resolution rules. |
 | `eslint.config.mjs` | ESLint 9 Flat Config extending Next.js core web vitals. |
 | `tests/vitest.config.js` | Vitest runner configuration with 60 max concurrency and path aliases. |
 | `Dockerfile` | Multi-stage Alpine containerization with standalone runtime packaging. |
@@ -294,16 +310,17 @@ Standardized console log markers:
 | `.env.example` | Canonical environment variable reference. |
 
 ### Key Core Modules
+
 | File | Role |
 | :--- | :--- |
-| `src/sse/handlers/chat.js` | High-level chat orchestrator (combo expansion, account failover, format bridge). |
-| `src/sse/services/auth.js` | Provider credential selection, account rotation, and API key authentication. |
+| `src/sse/handlers/chat.js` | Top-level chat orchestrator (combo expansion, account rotation, format bridging). |
+| `src/sse/services/auth.js` | Provider credential selection mutex, account rotation strategies, circuit breakers. |
 | `open-sse/handlers/chatCore.js` | Core chat coordinator: token savers, translation, executor dispatch. |
-| `open-sse/handlers/chatCore/streamingHandler.js` | SSE response pipeline with stall detection and format translation. |
-| `open-sse/executors/base.js` | Abstract executor with retry loop, exponential backoff, and proxyAwareFetch. |
+| `open-sse/handlers/chatCore/streamingHandler.js` | SSE streaming pipeline with non-SSE interception and stall watchdog. |
+| `open-sse/executors/base.js` | Abstract executor base class with retry loops and `proxyAwareFetch`. |
 | `open-sse/executors/default.js` | Standard OpenAI and Anthropic compatible upstream adapter. |
-| `open-sse/translator/index.js` | Format translation registry with OpenAI pivot and direct routes. |
-| `open-sse/rtk/index.js` | Request Token Killer: in-place compression of tool results. |
+| `open-sse/translator/index.js` | Hub-and-spoke format translation registry with OpenAI pivot and direct bridges. |
+| `open-sse/rtk/index.js` | Request Token Killer: in-place compression of tool result blocks. |
 | `src/lib/db/driver.js` | Adaptive multi-runtime SQLite driver selection engine. |
 | `src/lib/usageDb.js` | Token consumption, latency metrics, and request logging persistence. |
 
@@ -313,55 +330,58 @@ Standardized console log markers:
 
 ### Runtime Requirements
 - **Node.js**: Recommended Node.js **22 LTS** (`node:22-alpine` in Dockerfile). Minimum Node.js 18+.
-  - Node.js `>= 22.5.0` provides built-in `node:sqlite`.
-  - `better-sqlite3` is an `optionalDependency`; builds succeed even without C++ compilation tools thanks to the driver fallback chain (`node:sqlite` and pure-WASM `sql.js`).
+  - Node.js $\ge 22.5.0$ provides native `node:sqlite`.
+  - `better-sqlite3` is an `optionalDependency`; npm installation succeeds without C++ compilation tools by falling back to `node:sqlite` or pure-WASM `sql.js`.
 - **Bun**: First-class support across development, building, and production:
   - `npm run dev:bun` and `npm run build:bun` require the `--webpack` flag.
-  - Leverages native `bun:sqlite` adapter (`src/lib/db/adapters/bunSqliteAdapter.js`).
+  - Automatically loads the high-performance native `bun:sqlite` adapter.
 
 ### Package Manager
 - **Canonical Manager**: `npm` (`package-lock.json` v3).
-- Do **not** use `pnpm` or `yarn` (no lockfiles are committed; ignored in Docker and build scripts).
+- Do **not** use `pnpm` or `yarn` (no lockfiles committed; explicitly unsupported by build scripts and Dockerfile).
 
 ### Tooling Constraints
-- **Standalone Next.js**: Built with `output: "standalone"`. Next.js requires `node scripts/copy-standalone-assets.mjs` (`postbuild`) to copy static assets, public files, and `custom-server.js` into `.next/standalone/`.
-- **External Packages**: The following native/dynamic packages **MUST** remain in `serverExternalPackages` inside `next.config.mjs`:
+- **Standalone Next.js**: Built with `output: "standalone"`. Standalone builds require running `node scripts/copy-standalone-assets.mjs` (`postbuild`) to copy static assets, public files, and `custom-server.js` into `.next/standalone/`.
+- **External Packages**: The following packages **MUST** remain in `serverExternalPackages` inside `next.config.mjs`:
   ```javascript
   serverExternalPackages: ["better-sqlite3", "sql.js", "node:sqlite", "bun:sqlite", "open"]
   ```
-  *Note on `open`*: Bundling `open` with Webpack freezes the build machine's absolute `import.meta.url` file paths, breaking cross-platform runtime execution. Keeping it external preserves dynamic resolution.
-- **Large Request Payloads**: `proxyClientMaxBodySize` is set to `"128mb"` in `next.config.mjs` to allow massive LLM prompt contexts and base64 image data through API rewrites.
+  *Note on `open`*: Bundling `open` with Webpack replaces `import.meta.url` with the build machine's absolute file path, which throws an invalid file URL exception when run across different operating systems.
+- **Large Request Payloads**: `proxyClientMaxBodySize` is set to `"128mb"` in `next.config.mjs` to allow massive LLM prompt contexts and high-resolution base64 multimodal inputs through API rewrites.
 
 ---
 
 ## Testing & QA
 
-### Test Architecture
+### Test Frameworks & Architecture
 - **Runner**: Vitest 4.0 configured in `tests/vitest.config.js`.
-- **Environment**: Node environment with `maxConcurrency: 60` for parallel execution.
-- **Alternative Runners**: Select server and auth tests use native `node:test` (`tests/unit/custom-server-h2c.test.cjs`, `tests/auth/saml.test.js`).
+- **Environment**: Node.js environment with `maxConcurrency: 60` for parallel execution.
+- **Native Test Runner**: Specific runner-sensitive tests execute using native `node:test`:
+  - `tests/unit/custom-server-h2c.test.cjs` (HTTP/2 cleartext downgrade)
+  - `tests/auth/saml.test.js` (SAML cryptographic assertions)
+  - `tests/unit/cline-auth.test.js`
+  - `tests/unit/kimchi.test.js`
 
 ### Test Organization
-1. **Unit Tests (`tests/unit/`)**: 250+ isolated tests for executors, token refreshers, SQLite migrations, and security filters.
+1. **Unit Tests (`tests/unit/`)**: 250+ isolated tests covering executors, token refreshers, SQLite migrations, and security filters.
 2. **Translator Tests (`tests/translator/`)**: Tests format conversion matrices (`matrix.js`), golden request snapshots (`__snapshots__/`), and direct bridge round-trips.
 3. **Live Smoke Tests (`tests/translator/real/`)**: Live upstream tests gated behind `RUN_REAL=1` using saved credentials from the local database.
-4. **Baseline Gating (`tests/__baseline__/`)**: Byte-for-byte config stability verification and regression detection.
+4. **Baseline Verification (`tests/__baseline__/`)**: Byte-for-byte configuration stability verification and regression detection.
 
 ### Critical Testing Conventions & Caveats
 
-1. **Clean Checkout Expected Failures**:
-   - A clean checkout has **26 catalogued failing tests** in `tests/__baseline__/known-fails.txt`.
+1. **Clean Checkout Expected Failure Baseline**:
+   - A clean checkout has **26 catalogued failing tests** listed in `tests/__baseline__/known-fails.txt`.
    - Failures stem from uncommitted private cloud worker imports (`cloud/src/handlers/embeddings.js` in `unit/embeddings.cloud.test.js`) and unmocked external OAuth discovery endpoints.
-   - **Gating Command**: Run `node tests/__baseline__/verify-no-regression.mjs` to verify that no *new* regressions were introduced.
+   - **Zero Regression Rule**: Run `node tests/__baseline__/verify-no-regression.mjs` to verify that no *new* failures were introduced beyond the established baseline.
 2. **Mandatory Translator Registration**:
-   - Translator tests **must** import `tests/translator/registerAll.js`. Without it, translator tables remain empty under Vitest ESM, causing tests to silently act as no-ops and produce false passes.
+   - Translator tests **must** import `tests/translator/registerAll.js`. Without this import, translator tables remain unpopulated under Vitest ESM, causing format conversions to silently fail.
 3. **Bug Tracking via `it.fails`**:
-   - Confirmed, unfixed application bugs are written as `it.fails(...)`.
-   - They pass in CI while the bug exists and turn red when fixed, prompting the author to convert them into permanent regression tests (`it(...)`).
+   - Confirmed, unfixed application bugs are committed as `it.fails(...)`. They pass in CI while the bug exists and turn red when fixed, prompting conversion to standard regression tests (`it(...)`).
 4. **SSE & Stream Mocking**:
-   - Stream mocks should use standard `ReadableStream` with `TextEncoder` and `data: ...\n\n` formatting. Aborts and mid-stream disconnects are simulated using `controller.error(new Error("socket hang up"))`.
+   - Stream mocks must use standard `ReadableStream` with `TextEncoder` and `data: ...\n\n` framing. Aborts and mid-stream disconnects are simulated using `controller.error(new Error("socket hang up"))`.
 5. **Temporary SQLite DB Isolation**:
-   - Database tests should allocate a unique temporary directory (`fs.mkdtempSync`), point `process.env.DATA_DIR` to it, and cleanly close and delete the instance in `afterEach`.
+   - Database tests must allocate a unique temporary directory (`fs.mkdtempSync`), point `process.env.DATA_DIR` to it, and cleanly close and delete the instance in `afterEach`.
 
 ---
 
@@ -369,14 +389,10 @@ Standardized console log markers:
 
 ### 1. Skill Ecosystem (`skills/`)
 
-The repository includes drop-in skill specifications (`SKILL.md`) enabling autonomous agents (Claude Code, Cursor, OpenClaw, Cline, Roo, custom agent SDKs) to self-configure and operate against 9Router without writing provider boilerplate.
+The repository includes drop-in skill specifications (`SKILL.md`) enabling autonomous agents (Claude Code, Cursor, OpenClaw, Cline, Roo, custom agent SDKs) to self-configure and operate against 9Router without writing custom provider code.
 
-- **Root Entry Point (`skills/9router/SKILL.md`)**:
-  - The master bootstrap skill. AI agents load this skill first to discover gateway environment settings (`NINEROUTER_URL`, `NINEROUTER_KEY`), run health checks (`/api/health`), and access dynamic capability discovery endpoints.
-  - Acts as an index pointing to modular capability skills hosted at raw GitHub URLs.
-- **Conversational LLM Skill (`skills/9router-chat/SKILL.md`)**:
-  - Dedicated conversational skill for LLM queries, code generation, summarization, and agent tool execution.
-  - Documents dual-format endpoints (`/v1/chat/completions` and `/v1/messages`), multi-model fallback combos, SSE streaming shapes, and SDK client examples.
+- **Root Entry Point (`skills/9router/SKILL.md`)**: Master bootstrap skill. AI agents load this skill first to discover gateway environment settings (`NINEROUTER_URL`, `NINEROUTER_KEY`), run health checks (`/api/health`), and access dynamic capability discovery endpoints.
+- **Conversational LLM Skill (`skills/9router-chat/SKILL.md`)**: Dedicated conversational skill for LLM queries, code generation, summarization, and agent tool execution. Documents dual-format endpoints (`/v1/chat/completions` and `/v1/messages`), multi-model fallback combos, and SSE streaming shapes.
 - **Modular Capability Skills Registry**:
 
 | Skill Directory | Primary Endpoints | Target Capabilities & Providers | Raw Spec URL |
@@ -402,16 +418,10 @@ export NINEROUTER_KEY="sk-..."                      # API key from Dashboard →
 ```
 
 #### Authentication Mechanisms
-1. **API Key Authentication (`Authorization: Bearer <key>` or `x-api-key: <key>`)**:
-   - Validated against stored API keys via `validateApiKey`. Required for remote or non-loopback clients accessing `/v1/*`, `/v1beta/*`, `/responses`, or `/codex/*`.
-2. **Local Loopback Exemption**:
-   - Requests originating directly from verified loopback addresses (`127.0.0.1`, `::1`) bypass API key validation for public LLM endpoints, provided no proxy headers (`x-9r-via-proxy`) are present.
-3. **Machine CLI Token (`x-9r-cli-token`)**:
-   - Derived from host machine identity salted with `9r-cli-auth` (`getConsistentMachineId`).
-   - Allows companion CLI tooling and local agent processes to access public LLM APIs as well as protected local routes (`/api/cli-tools/*`, `/api/mcp/*`, `/api/tunnel/*`, `/api/headroom/*`) without browser session cookies.
-4. **Internal Peer Token (`x-9r-peer-token`)**:
-   - Ephemeral random per-process secret generated on server boot by `custom-server.js` (`NINEROUTER_PEER_TOKEN`).
-   - Stamped on incoming requests after TCP socket IP derivation to verify that downstream Next.js handlers (`dashboardGuard.js`) receive traffic routed through the trusted socket guard.
+1. **API Key Authentication (`Authorization: Bearer <key>` or `x-api-key: <key>`)**: Validated against stored API keys via `validateApiKey`. Required for remote or non-loopback clients accessing `/v1/*`, `/v1beta/*`, `/responses`, or `/codex/*`.
+2. **Local Loopback Exemption**: Requests originating directly from verified loopback addresses (`127.0.0.1`, `::1`) bypass API key validation for public LLM endpoints, provided no proxy headers (`x-9r-via-proxy`) are present.
+3. **Machine CLI Token (`x-9r-cli-token`)**: Derived from host machine identity salted with `9r-cli-auth` (`getConsistentMachineId`). Allows companion CLI tooling and local agent processes to access public LLM APIs as well as protected local routes (`/api/cli-tools/*`, `/api/mcp/*`, `/api/tunnel/*`, `/api/headroom/*`) without browser session cookies.
+4. **Internal Peer Token (`x-9r-peer-token`)**: Ephemeral random per-process secret generated on server boot by `custom-server.js` (`NINEROUTER_PEER_TOKEN`). Stamped on incoming requests after TCP socket IP derivation to verify that downstream Next.js handlers (`dashboardGuard.js`) receive traffic routed through the trusted socket guard.
 
 ---
 
