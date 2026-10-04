@@ -63,6 +63,11 @@ export default {
     { id: "gemini-3.1-pro-low", name: "Gemini 3.1 Pro (Low)" },
     { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (Thinking)" },
     { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6 (Thinking)" },
+    { id: "claude-opus-5-5-high", name: "Claude Opus 5.5 (Thinking)" },
+    { id: "claude-opus-5-5-medium", name: "Claude Opus 5.5 (Medium)" },
+    { id: "claude-opus-5-5-low", name: "Claude Opus 5.5 (Low)" },
+    { id: "claude-opus-5-5", name: "Claude Opus 5.5 (Thinking)", upstreamModelId: "claude-opus-5-5-high" },
+    { id: "claude-opus-5.5-high", name: "Claude Opus 5.5 (Thinking)", upstreamModelId: "claude-opus-5-5-high" },
     { id: "gpt-oss-120b-medium", name: "GPT-OSS 120B (Medium)" },
     { id: "gemini-3-flash", name: "Gemini 3 Flash", thinking: false },
     // Image generation models

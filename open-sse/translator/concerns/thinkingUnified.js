@@ -432,7 +432,9 @@ export function applyThinking(targetFormat, model, body, provider = null, intent
 
   const { cleanModel, override } = parseSuffix(model);
   const isThinkingModel = /(?:^|[/-])thinking(?:$|[/-])|-thinking$/i.test(cleanModel);
-  const cfg = override || intent || extractThinking(body) || (isThinkingModel ? { mode: "level", level: "high" } : null);
+  const tierMatch = !isThinkingModel && typeof cleanModel === "string" ? cleanModel.match(/-(high|medium|low)$/i) : null;
+  const defaultTier = isThinkingModel ? "high" : tierMatch ? tierMatch[1].toLowerCase() : null;
+  const cfg = override || intent || extractThinking(body) || (defaultTier ? { mode: "level", level: defaultTier } : null);
   const caps = getCapabilitiesForModel(provider, cleanModel);
 
   // Model cannot reason → strip any stray thinking fields.

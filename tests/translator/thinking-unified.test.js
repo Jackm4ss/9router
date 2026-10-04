@@ -316,6 +316,26 @@ describe("applyThinking per provider format", () => {
     expect(out.request.generationConfig.maxOutputTokens).toBeGreaterThanOrEqual(32768);
     expect(out.thinking).toBeUndefined();
   });
+  it("claude-opus-5-5-high over antigravity defaults to thinking enabled in generationConfig with gemini-budget", () => {
+    const out = apply("antigravity", "claude-opus-5-5-high", {
+      request: { contents: [{ role: "user", parts: [{ text: "hi" }] }] },
+    }, "antigravity");
+    expect(out.request.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 24576, includeThoughts: true });
+    expect(out.request.generationConfig.maxOutputTokens).toBeGreaterThanOrEqual(32768);
+    expect(out.thinking).toBeUndefined();
+    expect(out.output_config).toBeUndefined();
+  });
+  it("claude-opus-5-5-high over antigravity clamps reasoning_effort max to stay strictly below maxOutputTokens", () => {
+    const out = apply("antigravity", "claude-opus-5-5-high", {
+      request: { contents: [{ role: "user", parts: [{ text: "hi" }] }] },
+      reasoning_effort: "max",
+    }, "antigravity");
+    expect(out.request.generationConfig.maxOutputTokens).toBe(128000);
+    expect(out.request.generationConfig.thinkingConfig.thinkingBudget).toBe(126976);
+    expect(out.request.generationConfig.thinkingConfig.thinkingBudget).toBeLessThan(
+      out.request.generationConfig.maxOutputTokens
+    );
+  });
   it("claude-sonnet-4-6 over antigravity maps reasoning_effort to generationConfig thinkingBudget", () => {
     const out = apply("antigravity", "claude-sonnet-4-6", {
       request: { contents: [{ role: "user", parts: [{ text: "hi" }] }] },
