@@ -230,6 +230,18 @@ describe("OpenCode Free Muse Spark thinking", () => {
       },
       {
         type: "function",
+        name: "glob",
+        description: "This tool is currently unavailable and must not be used.",
+        parameters: { type: "object", properties: {} },
+      },
+      {
+        type: "function",
+        name: "grep",
+        description: "This tool is currently unavailable and must not be used.",
+        parameters: { type: "object", properties: {} },
+      },
+      {
+        type: "function",
         name: "read",
         description: "This tool is currently unavailable and must not be used.",
         parameters: { type: "object", properties: {} },

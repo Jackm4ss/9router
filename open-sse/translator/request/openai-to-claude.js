@@ -7,6 +7,7 @@ import { parseDataUri } from "../concerns/image.js";
 import { extractTextContent } from "../formats/gemini.js";
 import { ROLE, OPENAI_BLOCK, CLAUDE_BLOCK } from "../schema/index.js";
 import { getCapabilitiesForModel } from "../../providers/capabilities.js";
+import { DEFAULT_THINKING_CLAUDE_SIGNATURE } from "../../config/defaultThinkingSignature.js";
 
 // Empty prefix matches real Claude Code behavior (no tool name prefix).
 // Previously "proxy_" was used but this is a detectable fingerprint difference.
@@ -253,6 +254,13 @@ function getContentBlocksFromMessage(msg, toolNameMap = new Map()) {
       }
     }
   } else if (msg.role === ROLE.ASSISTANT) {
+    if (msg.reasoning_content && typeof msg.reasoning_content === "string") {
+      blocks.push({
+        type: CLAUDE_BLOCK.THINKING,
+        thinking: msg.reasoning_content,
+        signature: DEFAULT_THINKING_CLAUDE_SIGNATURE,
+      });
+    }
     if (Array.isArray(msg.content)) {
       for (const part of msg.content) {
         if (part.type === OPENAI_BLOCK.TEXT && part.text) {

@@ -16,6 +16,8 @@ const TOOLS = [{ type: "function", name: "get_weather", description: "w", parame
 const EXPECTED_TOOLS = [
   { type: "function", name: "get_weather", description: "w", parameters: { type: "object", properties: {} } },
   { type: "function", name: "bash", description: "This tool is currently unavailable and must not be used.", parameters: { type: "object", properties: {} } },
+  { type: "function", name: "glob", description: "This tool is currently unavailable and must not be used.", parameters: { type: "object", properties: {} } },
+  { type: "function", name: "grep", description: "This tool is currently unavailable and must not be used.", parameters: { type: "object", properties: {} } },
   { type: "function", name: "read", description: "This tool is currently unavailable and must not be used.", parameters: { type: "object", properties: {} } },
 ];
 
@@ -71,10 +73,12 @@ describe("opencode Free 1.3 tool_choice auto-only", () => {
     };
     const out = new OpenCodeExecutor().transformRequest(FREE_13, body, true, CREDS);
     expect(out.tool_choice).toBe("auto");
-    expect(out.tools).toHaveLength(2);
+    expect(out.tools).toHaveLength(4);
     expect(out.tools[0]).toEqual(readTool);
     expect(out.tools[1].name).toBe("bash");
     expect(out.tools[1].description).toContain("unavailable");
+    expect(out.tools[2].name).toBe("glob");
+    expect(out.tools[3].name).toBe("grep");
   });
 
   it.each([
