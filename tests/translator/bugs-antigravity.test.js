@@ -294,4 +294,39 @@ describe("Antigravity executor", () => {
     const finalReq = new AntigravityExecutor().transformRequest("gemini-3.8-flash-high", translated, true, { projectId: "p-1" });
     expect(finalReq.request.generationConfig.maxOutputTokens).toBe(65536);
   });
+
+  it("supports reasoning and generates thinkingConfig for gemini-pro-agent and gemini-3.1-pro-low", () => {
+    const translatedProAgent = translateRequest(
+      FORMATS.OPENAI,
+      FORMATS.ANTIGRAVITY,
+      "gemini-pro-agent",
+      {
+        messages: [{ role: "user", content: "Solve this puzzle" }],
+      },
+      true,
+      null,
+      "antigravity"
+    );
+    expect(translatedProAgent.request.generationConfig.thinkingConfig).toEqual({
+      thinkingLevel: "high",
+      includeThoughts: true,
+    });
+    expect(translatedProAgent.request.generationConfig.maxOutputTokens).toBe(65535);
+
+    const translatedProLow = translateRequest(
+      FORMATS.OPENAI,
+      FORMATS.ANTIGRAVITY,
+      "gemini-3.1-pro-low",
+      {
+        messages: [{ role: "user", content: "Solve this puzzle" }],
+      },
+      true,
+      null,
+      "antigravity"
+    );
+    expect(translatedProLow.request.generationConfig.thinkingConfig).toEqual({
+      thinkingLevel: "low",
+      includeThoughts: true,
+    });
+  });
 });

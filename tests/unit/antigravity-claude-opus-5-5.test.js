@@ -192,7 +192,7 @@ describe("Antigravity Claude Opus 5.5 models", () => {
       );
 
       expect(translated.request.generationConfig.thinkingConfig).toEqual({
-        thinkingBudget: 24576,
+        thinkingBudget: 32768,
         includeThoughts: true,
       });
     });
@@ -211,7 +211,7 @@ describe("Antigravity Claude Opus 5.5 models", () => {
       );
 
       expect(translated.request.generationConfig.thinkingConfig).toEqual({
-        thinkingBudget: 8192,
+        thinkingBudget: 16384,
         includeThoughts: true,
       });
     });
@@ -230,7 +230,7 @@ describe("Antigravity Claude Opus 5.5 models", () => {
       );
 
       expect(translated.request.generationConfig.thinkingConfig).toEqual({
-        thinkingBudget: 1024,
+        thinkingBudget: 8192,
         includeThoughts: true,
       });
     });
@@ -250,7 +250,7 @@ describe("Antigravity Claude Opus 5.5 models", () => {
       );
 
       expect(translated.request.generationConfig.thinkingConfig).toEqual({
-        thinkingBudget: 1024,
+        thinkingBudget: 8192,
         includeThoughts: true,
       });
     });

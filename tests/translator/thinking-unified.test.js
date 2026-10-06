@@ -320,7 +320,7 @@ describe("applyThinking per provider format", () => {
     const out = apply("antigravity", "claude-opus-5-5-high", {
       request: { contents: [{ role: "user", parts: [{ text: "hi" }] }] },
     }, "antigravity");
-    expect(out.request.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 24576, includeThoughts: true });
+    expect(out.request.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 32768, includeThoughts: true });
     expect(out.request.generationConfig.maxOutputTokens).toBeGreaterThanOrEqual(32768);
     expect(out.thinking).toBeUndefined();
     expect(out.output_config).toBeUndefined();

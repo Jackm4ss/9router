@@ -163,11 +163,27 @@ function resolveFormat(targetFormat, model, provider) {
   return FORMAT_TO_NATIVE[targetFormat] || "openai";
 }
 
+const OPUS_5_5_BUDGET = {
+  none: 0,
+  minimal: 8192,
+  low: 8192,
+  medium: 16384,
+  high: 32768,
+  xhigh: 65535,
+  max: 128000,
+};
+
 // Convert unified config to a budget number (for budget-based formats).
-function toBudget(cfg, range) {
+function toBudget(cfg, range, model = null) {
   let budget;
   if (cfg.mode === "budget") budget = cfg.budget;
-  else if (cfg.mode === "level") budget = effortToBudget(cfg.level);
+  else if (cfg.mode === "level") {
+    if (model && /(?:^|[/-])claude-opus-5[.-]5(?:$|[/-])/i.test(model)) {
+      budget = OPUS_5_5_BUDGET[cfg.level] ?? effortToBudget(cfg.level);
+    } else {
+      budget = effortToBudget(cfg.level);
+    }
+  }
   else if (cfg.mode === "auto") return -1;
   if (!Number.isFinite(budget)) return undefined;
   if (range) {
@@ -276,7 +292,7 @@ function stripAll(body) {
 }
 
 // Apply unified thinking config to body in the resolved provider-native format.
-function applyFormat(fmt, body, cfg, caps, supportedLevels, display) {
+function applyFormat(fmt, body, cfg, caps, supportedLevels, display, model = null) {
   const none = cfg.mode === "none";
   const canDisable = caps.thinkingCanDisable !== false;
   // Model cannot disable thinking → clamp "none" to minimal effort instead.
@@ -303,7 +319,7 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display) {
     }
     case "claude-budget": {
       if (none && canDisable) { body.thinking = { type: "disabled" }; break; }
-      let budget = toBudget(eff, caps.thinkingRange);
+      let budget = toBudget(eff, caps.thinkingRange, model);
       if (budget != null && budget > 0) {
         const ceiling = Number(caps?.maxOutput) || 64000;
         if (!body.max_tokens || body.max_tokens <= budget) {
@@ -324,7 +340,7 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display) {
     }
     case "gemini-budget": {
       if (none && canDisable) { setGeminiThinking(body, { thinkingBudget: 0, includeThoughts: false }); break; }
-      let budget = toBudget(eff, caps.thinkingRange);
+      let budget = toBudget(eff, caps.thinkingRange, model);
       ensureGeminiOutputFloor(body, geminiBudgetOutputFloor(budget ?? -1), caps);
       if (budget != null && budget > 0) {
         const gc = getGeminiGenerationConfig(body);
@@ -357,7 +373,7 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display) {
     case "qwen": {
       if (none && canDisable) { body.enable_thinking = false; break; }
       body.enable_thinking = true;
-      const budget = toBudget(eff, caps.thinkingRange);
+      const budget = toBudget(eff, caps.thinkingRange, model);
       if (Number.isFinite(budget) && budget > 0) body.thinking_budget = budget;
       break;
     }
@@ -385,7 +401,7 @@ function applyFormat(fmt, body, cfg, caps, supportedLevels, display) {
     }
     case "hunyuan": {
       if (none && canDisable) { body.thinking = { type: "disabled" }; break; }
-      const budget = toBudget(eff, caps.thinkingRange);
+      const budget = toBudget(eff, caps.thinkingRange, model);
       body.thinking = budget === -1 ? { type: "enabled" } : { type: "enabled", budget_tokens: budget || 8192 };
       break;
     }
@@ -431,9 +447,11 @@ export function applyThinking(targetFormat, model, body, provider = null, intent
   if (!body || typeof body !== "object") return body;
 
   const { cleanModel, override } = parseSuffix(model);
+  const tierMatch = typeof cleanModel === "string" ? cleanModel.match(/-(high|medium|low)$/i) : null;
   const isThinkingModel = /(?:^|[/-])thinking(?:$|[/-])|-thinking$/i.test(cleanModel);
-  const tierMatch = !isThinkingModel && typeof cleanModel === "string" ? cleanModel.match(/-(high|medium|low)$/i) : null;
-  const defaultTier = isThinkingModel ? "high" : tierMatch ? tierMatch[1].toLowerCase() : null;
+  const isAgentModel = /(?:^|[/-])(?:pro-agent|flash-agent)$/i.test(cleanModel);
+  const isOpus55 = /(?:^|[/-])claude-opus-5[.-]5$/i.test(cleanModel);
+  const defaultTier = tierMatch ? tierMatch[1].toLowerCase() : (isThinkingModel || isAgentModel || isOpus55 ? "high" : null);
   const cfg = override || intent || extractThinking(body) || (defaultTier ? { mode: "level", level: defaultTier } : null);
   const caps = getCapabilitiesForModel(provider, cleanModel);
 
@@ -451,6 +469,6 @@ export function applyThinking(targetFormat, model, body, provider = null, intent
   // An OpenAI-shaped client's ask arrives via the captured intent instead.
   const display = typeof body.thinking?.display === "string" ? body.thinking.display : intent?.display;
   stripAll(body);
-  applyFormat(fmt, body, cfg, caps, supportedLevels, display);
+  applyFormat(fmt, body, cfg, caps, supportedLevels, display, cleanModel);
   return body;
 }
