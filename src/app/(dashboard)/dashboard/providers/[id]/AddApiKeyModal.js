@@ -377,6 +377,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
           onChange={(e) => setFormData({ ...formData, proxyPoolId: e.target.value })}
           options={[
             { value: NONE_PROXY_POOL_VALUE, label: "None" },
+            { value: "__rotate__", label: "🔄 Rotate All Pools (Stateful)" },
             ...(proxyPools || []).map((pool) => ({ value: pool.id, label: pool.name })),
           ]}
           placeholder="None"

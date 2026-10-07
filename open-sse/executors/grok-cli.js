@@ -525,6 +525,82 @@ export class GrokCliExecutor extends BaseExecutor {
     return body;
   }
 
+  _isRetryableProxyError(err) {
+    if (!err) return false;
+    const msg = (err.message || "").toLowerCase();
+    const code = err.code || err.cause?.code || "";
+
+    if (
+      code === "ECONNRESET" ||
+      code === "ETIMEDOUT" ||
+      code === "ECONNREFUSED" ||
+      code === "EHOSTUNREACH" ||
+      code === "EPIPE" ||
+      code === "UND_ERR_CONNECT_TIMEOUT" ||
+      code === "UND_ERR_SOCKET"
+    ) {
+      return true;
+    }
+
+    if (
+      msg.includes("connect timeout") ||
+      msg.includes("fetch connect timeout") ||
+      msg.includes("socket hang up") ||
+      msg.includes("premature close") ||
+      msg.includes("proxy") ||
+      msg.includes("econnreset") ||
+      msg.includes("etimedout") ||
+      msg.includes("fetch failed")
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  _isProxyGateError(status) {
+    return status === 502 || status === 503 || status === 504;
+  }
+
+  _hookLeaseToResponse(response, lease) {
+    if (!response || !response.body || typeof response.body.pipeThrough !== "function") {
+      lease.release();
+      return response;
+    }
+
+    let released = false;
+    const doRelease = () => {
+      if (!released) {
+        released = true;
+        lease.release();
+      }
+    };
+
+    const transform = new TransformStream({
+      transform(chunk, controller) {
+        controller.enqueue(chunk);
+      },
+      flush() {
+        doRelease();
+      },
+      cancel() {
+        doRelease();
+      },
+    });
+
+    try {
+      const piped = response.body.pipeThrough(transform);
+      return new Response(piped, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+    } catch {
+      lease.release();
+      return response;
+    }
+  }
+
   async execute(args) {
     // Lazy-resolve stable agent id once per process if connection has none
     if (!this._agentId && !args.credentials?.providerSpecificData?.deviceId) {
@@ -545,7 +621,78 @@ export class GrokCliExecutor extends BaseExecutor {
       this._agentId = args.credentials.providerSpecificData.deviceId;
     }
 
-    return super.execute(args);
+    const rotator = args.proxyOptions?.rotator;
+    if (!rotator) {
+      return super.execute(args);
+    }
+
+    const MAX_PROXY_RETRIES = 3;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= MAX_PROXY_RETRIES; attempt++) {
+      let lease = null;
+      try {
+        lease = await rotator.acquire({ signal: args.signal });
+      } catch (allocErr) {
+        args.log?.error?.("PROXY", `[GrokCLI] Proxy allocation failed: ${allocErr.message}`);
+        throw new Error(`[GrokCLI] Proxy allocation failed (strict proxy enforced): ${allocErr.message}`);
+      }
+
+      const attemptProxyOptions = {
+        ...args.proxyOptions,
+        connectionProxyEnabled: true,
+        connectionProxyUrl: lease.proxyUrl,
+        connectionNoProxy: lease.noProxy || "",
+        strictProxy: true,
+        proxyPoolId: lease.proxyPoolId,
+      };
+
+      try {
+        let maskedProxy = lease.proxyPoolId;
+        try {
+          const parsedProxy = new URL(lease.proxyUrl);
+          maskedProxy = `${lease.proxyPoolId} ${parsedProxy.protocol}//${parsedProxy.hostname}${parsedProxy.port ? `:${parsedProxy.port}` : ""}`;
+        } catch { /* keep pool id only */ }
+        args.log?.info?.("PROXY", `[GrokCLI] Attempt ${attempt}/${MAX_PROXY_RETRIES} via ${maskedProxy}`);
+        const result = await super.execute({
+          ...args,
+          proxyOptions: attemptProxyOptions,
+        });
+
+        // Check if proxy returned gateway error (502/503/504)
+        if (this._isProxyGateError(result.response?.status)) {
+          if (attempt < MAX_PROXY_RETRIES) {
+            args.log?.warn?.("PROXY", `[GrokCLI] Proxy ${lease.proxyPoolId} returned gateway HTTP ${result.response.status}. Retrying attempt ${attempt + 1}/${MAX_PROXY_RETRIES}...`);
+            lease.markFailed(new Error(`Proxy HTTP ${result.response.status}`));
+            continue;
+          }
+        }
+
+        const hookedResponse = this._hookLeaseToResponse(result.response, lease);
+        return {
+          ...result,
+          response: hookedResponse,
+        };
+      } catch (err) {
+        lastError = err;
+
+        if (args.signal?.aborted || (err.name === "AbortError" && !err.message.includes("connect timeout"))) {
+          lease.release();
+          throw err;
+        }
+
+        if (this._isRetryableProxyError(err) && attempt < MAX_PROXY_RETRIES) {
+          args.log?.warn?.("PROXY", `[GrokCLI] Proxy ${lease.proxyPoolId} network failure (${err.message}). Retrying attempt ${attempt + 1}/${MAX_PROXY_RETRIES}...`);
+          lease.markFailed(err);
+          continue;
+        }
+
+        lease.release();
+        throw err;
+      }
+    }
+
+    throw lastError || new Error(`[GrokCLI] All ${MAX_PROXY_RETRIES} proxy attempts failed`);
   }
 }
 

@@ -1088,6 +1088,14 @@ export default function ProviderDetailPage() {
       <div className="flex flex-col gap-3">
         <div className="flex flex-col">
           <button
+            onClick={() => handleApplySinglePool("__rotate__")}
+            disabled={bulkUpdatingProxy || activePools.length === 0}
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50 text-primary font-medium border-b border-border/40 pb-2 mb-1"
+          >
+            <span className="material-symbols-outlined text-primary text-[18px]">autorenew</span>
+            <span className="text-sm">🔄 Rotate All Pools (Stateful)</span>
+          </button>
+          <button
             onClick={handleApplyOneToOne}
             disabled={bulkUpdatingProxy || activePools.length === 0}
             className="flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"

@@ -13,16 +13,19 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
 
   const proxyPoolMap = new Map((proxyPools || []).map((pool) => [pool.id, pool]));
   const boundProxyPoolId = connection.providerSpecificData?.proxyPoolId || null;
-  const boundProxyPool = boundProxyPoolId ? proxyPoolMap.get(boundProxyPoolId) : null;
+  const isRotatingPool = boundProxyPoolId === "__rotate__";
+  const boundProxyPool = boundProxyPoolId && !isRotatingPool ? proxyPoolMap.get(boundProxyPoolId) : null;
   const hasLegacyProxy = connection.providerSpecificData?.connectionProxyEnabled === true && !!connection.providerSpecificData?.connectionProxyUrl;
-  const hasAnyProxy = !!boundProxyPoolId || hasLegacyProxy;
-  const proxyDisplayText = boundProxyPool
-    ? `Pool: ${boundProxyPool.name}`
-    : boundProxyPoolId
-      ? `Pool: ${boundProxyPoolId} (inactive/missing)`
-      : hasLegacyProxy
-        ? `Legacy: ${connection.providerSpecificData?.connectionProxyUrl}`
-        : "";
+  const hasAnyProxy = isRotatingPool || !!boundProxyPoolId || hasLegacyProxy;
+  const proxyDisplayText = isRotatingPool
+    ? "Rotating Residential (Active Pools)"
+    : boundProxyPool
+      ? `Pool: ${boundProxyPool.name}`
+      : boundProxyPoolId
+        ? `Pool: ${boundProxyPoolId} (inactive/missing)`
+        : hasLegacyProxy
+          ? `Legacy: ${connection.providerSpecificData?.connectionProxyUrl}`
+          : "";
   const autoPingTooltip = autoPing?.provider === "codex"
     ? "Auto-starts the next 5h Codex window after reset by sending a tiny gpt-5.5 request. Consumes a small amount of quota."
     : "When your 5h quota runs out, auto-sends a request the moment it resets so a new window starts right away.";
@@ -41,7 +44,10 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
   const noProxyText = boundProxyPool?.noProxy || connection.providerSpecificData?.connectionNoProxy || "";
 
   let proxyBadgeVariant = "default";
-  if (boundProxyPool?.isActive === true) {
+  if (isRotatingPool) {
+    proxyBadgeVariant = "success";
+    maskedProxyUrl = `Rotating across all active pools (${(proxyPools || []).filter(p => p.isActive !== false).length} pools)`;
+  } else if (boundProxyPool?.isActive === true) {
     proxyBadgeVariant = "success";
   } else if (boundProxyPoolId || hasLegacyProxy) {
     proxyBadgeVariant = "error";
@@ -226,22 +232,32 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
                 <span className="text-[10px] leading-tight">Proxy</span>
               </button>
               {showProxyDropdown && (
-                <div className="absolute right-0 top-full z-50 mt-1 max-w-[78vw] min-w-[160px] rounded-lg border border-border bg-bg py-1 shadow-lg">
-                  <button
-                    onClick={() => handleSelectProxy("__none__")}
-                    className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${!boundProxyPoolId ? "text-primary font-medium" : "text-text-main"}`}
-                  >
-                    None
-                  </button>
-                  {(proxyPools || []).map((pool) => (
+                <div className="absolute right-0 top-full z-50 mt-1 max-w-[78vw] min-w-[220px] max-h-[320px] overflow-y-auto rounded-lg border border-border bg-bg py-1 shadow-xl">
+                  <div className="sticky top-0 bg-bg z-10 border-b border-border/50 pb-1">
                     <button
-                      key={pool.id}
-                      onClick={() => handleSelectProxy(pool.id)}
-                      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${boundProxyPoolId === pool.id ? "text-primary font-medium" : "text-text-main"}`}
+                      onClick={() => handleSelectProxy("__none__")}
+                      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 ${!boundProxyPoolId ? "text-primary font-medium" : "text-text-main"}`}
                     >
-                      {pool.name}
+                      None
                     </button>
-                  ))}
+                    <button
+                      onClick={() => handleSelectProxy("__rotate__")}
+                      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-primary/10 text-primary font-semibold flex items-center gap-1.5 ${isRotatingPool ? "bg-primary/10" : ""}`}
+                    >
+                      <span>🔄</span> Rotate All Pools (Stateful)
+                    </button>
+                  </div>
+                  <div className="pt-1">
+                    {(proxyPools || []).map((pool) => (
+                      <button
+                        key={pool.id}
+                        onClick={() => handleSelectProxy(pool.id)}
+                        className={`w-full text-left px-3 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5 truncate ${boundProxyPoolId === pool.id ? "text-primary font-medium" : "text-text-main"}`}
+                      >
+                        {pool.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

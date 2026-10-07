@@ -75,6 +75,17 @@ export async function resolveConnectionProxyConfig(
     const proxyPoolId =
       proxyPoolIdRaw === "__none__" ? "" : proxyPoolIdRaw;
 
+    if (proxyPoolId === "__rotate__") {
+      return {
+        source: "rotator",
+        proxyPoolId: "__rotate__",
+        rotateProxyPools: true,
+        connectionProxyEnabled: true,
+        connectionProxyUrl: "",
+        connectionNoProxy: "",
+        strictProxy: true,
+      };
+    }
     const legacy = normalizeLegacyProxy(providerSpecificData);
 
     // A strict pool must keep its guarantee even when the pool itself is not

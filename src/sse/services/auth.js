@@ -1,5 +1,6 @@
 import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings, getProxyPools } from "@/lib/localDb";
 import { resolveConnectionProxyConfig, pickProxyPoolId } from "@/lib/network/connectionProxy";
+import { getStatefulProxyRotator } from "@/lib/network/statefulProxyRotator";
 import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil } from "open-sse/services/accountFallback.js";
 import { MAX_RATE_LIMIT_COOLDOWN_MS } from "open-sse/config/errorConfig.js";
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
@@ -195,7 +196,31 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       connection = availableConnections[0];
     }
 
-    const resolvedProxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
+    const psd = connection.providerSpecificData || {};
+    const isRotating =
+      psd.proxyPoolId === "__rotate__" ||
+      psd.rotateProxyPools === true ||
+      providerOverride.proxyPoolId === "__rotate__" ||
+      providerOverride.rotateProxyPools === true ||
+      providerOverride.rotateStrategy === "shuffled" ||
+      (providerId === "grok-cli" && (providerOverride.rotateStrategy === "random" || providerOverride.rotateStrategy === "round-robin"));
+
+    let proxyRotator = null;
+    let resolvedProxy;
+
+    if (isRotating) {
+      proxyRotator = getStatefulProxyRotator(providerId);
+      resolvedProxy = {
+        connectionProxyEnabled: true,
+        connectionProxyUrl: "",
+        connectionNoProxy: "",
+        proxyPoolId: "__rotate__",
+        vercelRelayUrl: "",
+        strictProxy: true,
+      };
+    } else {
+      resolvedProxy = await resolveConnectionProxyConfig(psd);
+    }
 
     return {
       authType: connection.authType,
@@ -210,12 +235,14 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       connectionName: connection.displayName || connection.name || connection.email || connection.id,
       copilotToken: connection.providerSpecificData?.copilotToken,
       providerSpecificData: {
-        ...(connection.providerSpecificData || {}),
+        ...psd,
         connectionProxyEnabled: resolvedProxy.connectionProxyEnabled,
         connectionProxyUrl: resolvedProxy.connectionProxyUrl,
         connectionNoProxy: resolvedProxy.connectionNoProxy,
         connectionProxyPoolId: resolvedProxy.proxyPoolId || null,
         vercelRelayUrl: resolvedProxy.vercelRelayUrl || "",
+        strictProxy: resolvedProxy.strictProxy === true || isRotating,
+        proxyRotator: proxyRotator,
       },
       connectionId: connection.id,
       // Include current status for optimization check
